@@ -1,0 +1,28 @@
+<label for="name{{ i }}">Name:(i.e: a or a-c)</label><br>
+<input type="text" id="name{{ i }}" name="name{{ i }}" value="{{ box_criteria.get(i, {}).get('name', '') }}"><br><br>
+
+<label for="type{{ i }}">Type:</label><br>
+<select id="type{{ i }}" name="type{{ i }}">
+    <option value="-None-" {% if box_criteria.get(i, {}).get('type', '') == "-None-" %}selected{% endif %}>-None-</option>
+    <option value="Instant" {% if box_criteria.get(i, {}).get('type', '') == "Instant" %}selected{% endif %}>Instant</option>
+    <option value="Sorcery" {% if box_criteria.get(i, {}).get('type', '') == "Sorcery" %}selected{% endif %}>Sorcery</option>
+    <option value="Creature" {% if box_criteria.get(i, {}).get('type', '') == "Creature" %}selected{% endif %}>Creature</option>
+    <option value="Legendary Creature" {% if box_criteria.get(i, {}).get('type', '') == "Legendary Creature" %}selected{% endif %}>Legendary Creature</option>
+    <option value="Artifact" {% if box_criteria.get(i, {}).get('type', '') == "Artifact" %}selected{% endif %}>Artifact</option>
+    <option value="Land" {% if box_criteria.get(i, {}).get('type', '') == "Land" %}selected{% endif %}>Land</option>
+    <option value="Token" {% if box_criteria.get(i, {}).get('type', '') == "Token" %}selected{% endif %}>Token</option>
+</select><br><br>
+
+<label>Colors:</label><br>
+{% for color in ["W", "U", "B", "R", "G", "C"] %}
+    <input type="checkbox" id="{{ color }}{{ i }}" name="{{ color }}{{ i }}"
+           {% if color in box_criteria.get(i, {}).get('colors', []) %}checked{% endif %}>
+    <label for="{{ color }}{{ i }}">{{ color }}</label>
+{% endfor %}<br><br>
+
+<label for="cmc{{ i }}">CMC:</label><br>
+<input type="number" id="cmc{{ i }}" name="cmc{{ i }}" value="{{ box_criteria.get(i, {}).get('cmc', '') }}"><br><br>
+
+<label for="set_symbol{{ i }}">Set Symbol (3 characters):</label><br>
+<input type="text" id="set_symbol{{ i }}" name="set_symbol{{ i }}" maxlength="3" 
+       value="{{ box_criteria.get(i, {}).get('set_symbol', '') }}"><br><br>

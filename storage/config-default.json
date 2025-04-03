@@ -1,0 +1,50 @@
+{
+    "aws": {
+        "access_key_id": "",
+        "secret_access_key": "",
+        "region_name": ""
+    },
+    "scryfall_search_url": "https://api.scryfall.com/cards/named?fuzzy={}",
+    "flappers": {
+        "flapper_1": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_2": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_3": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_4": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_5": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_6": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_7": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_8": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        },
+        "flapper_9": {
+            "open_degrees": 80,
+            "close_degrees": 110
+        }
+    },
+    "card_servo": {
+        "open_degrees": 5,
+        "close_degrees": 160
+    }
+}

@@ -2,4 +2,6 @@
 storage/card_info.csv
 storage/config.json
 storage/card_scanned.png
-counters/
+counters/monthly_move_count.txt
+counters/move_count.txt
+static/images/card_scanned.png

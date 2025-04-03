@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Servo and Card Input</title>
+    <style>
+        .card-box {
+            border: 1px solid black;
+            padding: 10px;
+            margin-bottom: 10px;
+            width: fit-content;
+        }
+        .card-row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+        }
+        .top-section {
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        .image-box {
+            border: 1px solid black;
+            padding: 10px;
+            text-align: center;
+            width: 300px;
+        }
+        .image-box img {
+            max-width: 100%;
+            height: auto;
+        }
+        .button-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        .csv-controls {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Card Sorter</h1>
+    <!-- Single form wrapping top section and card information -->
+    <form method="POST">
+        <div class="top-section">
+            <!-- Left image box: Card Scanned -->
+            <div class="image-box">
+                <h3>Card Scanned</h3>
+                <img id="cardScanned" src="/static/images/card_scanned.png" alt="Scanned Card Image">
+            </div>
+            
+            <!-- Middle container for all controls -->
+            <div class="button-container">
+                <!-- Main controls: Sorting and CSV checkbox -->
+                <div>
+                    <button type="submit" name="start_sorting">Start Sorting</button>
+                    <label>
+                        <input type="checkbox" name="save_to_csv" value="1" {{ 'checked' if csv_enabled else '' }}>
+                        Save Card Info to CSV
+                    </label>
+                    <button type="submit" name="stop_sorting">Stop Sorting</button>
+                </div>
+                
+                <!-- CSV controls: Download and Clear CSV -->
+                <div class="csv-controls">
+                    <!-- Download CSV remains a GET request -->
+                    <a href="{{ url_for('download_csv') }}">
+                        <button type="button">Download CSV</button>
+                    </a>
+                    <button type="submit" name="clear_csv">Clear CSV</button>
+                </div>
+                
+                <!-- Counters and monthly reset -->
+                <div>
+                    <p>Lifetime Cards Processed: <span id="moveCountDisplay">{{ moves }}</span></p>
+                    <p>Monthly Cards Processed: <span id="monthlyCountDisplay">{{ monthly_moves }}</span></p>
+                    <button type="submit" name="clear_monthly_count">Reset Monthly Count</button>
+                </div>
+                
+                <!-- Submit Cards button -->
+                <div>
+                    <button type="submit" name="submit_card">Submit Cards</button>
+                </div>
+                
+                <!-- Settings button (using a link so it remains a GET request) -->
+                <div>
+                    <a href="{{ url_for('settings') }}">
+                        <button type="button">Settings</button>
+                    </a>
+                </div>
+            </div>
+            
+            <!-- Right image box: Card Identified -->
+            <div class="image-box">
+                <h3>Card Identified</h3>
+                <img id="cardIdentified" src="{{ card_identified_url if card_identified_url else 'https://cards.scryfall.io/large/front/f/a/fae9abc7-ecd3-4042-a5b0-5f2b24491fa6.jpg?1562258009' }}" alt="Identified Card Image">
+            </div>
+        </div>
+        
+        <!-- Card Information Section -->
+        <h2>Card Information</h2>
+        <div class="card-row">
+            {% for i in range(1, 6) %}
+            <div class="card-box">
+                <h3>Card {{ i }}</h3>
+                {% include 'card_form.html' %}
+            </div>
+            {% endfor %}
+        </div>
+        <div class="card-row">
+            {% for i in range(6, 11) %}
+            <div class="card-box">
+                <h3>Card {{ i }}</h3>
+                {% include 'card_form.html' %}
+            </div>
+            {% endfor %}
+        </div>
+    </form>
+    
+    <!-- JavaScript to update counts and images via AJAX -->
+    <script>
+        function updateCounts() {
+            fetch("/get_move_count")
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById("moveCountDisplay").innerText = data.moves;
+                    document.getElementById("monthlyCountDisplay").innerText = data.monthly_moves;
+                    if (data.card_identified_url) {
+                        document.getElementById("cardIdentified").src = data.card_identified_url + "?t=" + new Date().getTime();
+                    }
+                    document.getElementById("cardScanned").src = data.card_scanned_url + "?t=" + new Date().getTime();
+                })
+                .catch(error => console.error("Error fetching counts:", error));
+        }
+        setInterval(updateCounts, 2000);
+    </script>
+</body>
+</html>

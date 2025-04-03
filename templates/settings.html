@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Settings</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        label {
+            display: inline-block;
+            width: 200px;
+            vertical-align: top;
+        }
+        input[type="text"] {
+            width: 300px;
+        }
+        .section {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+        }
+        .subsection {
+            margin-bottom: 15px;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Settings</h1>
+    {% if error %}
+      <p style="color:red;">{{ error }}</p>
+    {% endif %}
+    <form method="POST">
+      
+      <!-- AWS Settings -->
+      <div class="section">
+          <h2>AWS Settings</h2>
+          <label for="aws_access_key_id">Access Key ID:</label>
+          <input type="text" id="aws_access_key_id" name="aws_access_key_id" value="{{ config.aws.access_key_id or '' }}"><br><br>
+          
+          <label for="aws_secret_access_key">Secret Access Key:</label>
+          <input type="text" id="aws_secret_access_key" name="aws_secret_access_key" value="{{ config.aws.secret_access_key or '' }}"><br><br>
+          
+          <label for="aws_region_name">Region Name:</label>
+          <input type="text" id="aws_region_name" name="aws_region_name" value="{{ config.aws.region_name or '' }}"><br><br>
+      </div>
+      
+      <!-- Scryfall Settings -->
+      <div class="section">
+          <h2>Scryfall Settings</h2>
+          <label for="scryfall_search_url">Scryfall Search URL:</label>
+          <input type="text" id="scryfall_search_url" name="scryfall_search_url" value="{{ config.scryfall_search_url or '' }}"><br><br>
+      </div>
+      
+      <!-- Flappers Settings -->
+      <div class="section">
+          <h2>Flappers Settings</h2>
+          {% for flapper, settings in config.flappers.items() %}
+            <div class="subsection">
+                <h3>{{ flapper|replace('_', ' ')|title }}</h3>
+                <label for="{{ flapper }}_open_degrees">Open Degrees:</label>
+                <input type="text" id="{{ flapper }}_open_degrees" name="{{ flapper }}_open_degrees" value="{{ settings.open_degrees or '' }}"><br><br>
+                
+                <label for="{{ flapper }}_close_degrees">Close Degrees:</label>
+                <input type="text" id="{{ flapper }}_close_degrees" name="{{ flapper }}_close_degrees" value="{{ settings.close_degrees or '' }}"><br><br>
+            </div>
+          {% endfor %}
+      </div>
+      
+      <!-- Card Servo Settings -->
+      <div class="section">
+          <h2>Card Servo Settings</h2>
+          <label for="card_servo_open_degrees">Open Degrees:</label>
+          <input type="text" id="card_servo_open_degrees" name="card_servo_open_degrees" value="{{ config.card_servo.open_degrees or '' }}"><br><br>
+          
+          <label for="card_servo_close_degrees">Close Degrees:</label>
+          <input type="text" id="card_servo_close_degrees" name="card_servo_close_degrees" value="{{ config.card_servo.close_degrees or '' }}"><br><br>
+      </div>
+      
+      <button type="submit" name="save">Save</button>
+      <button type="submit" name="cancel">Cancel</button>
+    </form>
+</body>
+</html>

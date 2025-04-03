@@ -1,0 +1,4 @@
+# Ignore everything in the storage folder
+storage/card_info.csv
+storage/config.json
+storage/card_scanned.png

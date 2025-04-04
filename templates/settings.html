@@ -63,6 +63,9 @@
                 
                 <label for="{{ flapper }}_close_degrees">Close Degrees:</label>
                 <input type="text" id="{{ flapper }}_close_degrees" name="{{ flapper }}_close_degrees" value="{{ settings.close_degrees or '' }}"><br><br>
+                
+                <!-- Test Button for each flapper -->
+                <button type="button" onclick="testFlapper('{{ flapper }}')">Test {{ flapper|replace('_', ' ')|title }}</button>
             </div>
           {% endfor %}
       </div>
@@ -75,10 +78,46 @@
           
           <label for="card_servo_close_degrees">Close Degrees:</label>
           <input type="text" id="card_servo_close_degrees" name="card_servo_close_degrees" value="{{ config.card_servo.close_degrees or '' }}"><br><br>
+          
+          <!-- Test Button for card servo -->
+          <button type="button" onclick="testCardServo()">Test Card Servo</button>
       </div>
       
       <button type="submit" name="save">Save</button>
       <button type="submit" name="cancel">Cancel</button>
     </form>
+    
+    <script>
+        // Helper function to call the server endpoint to run a script
+        function runScript(scriptName) {
+            fetch(`/run_script?script=${encodeURIComponent(scriptName)}`)
+                .then(response => response.text())
+                .then(data => console.log(`Script ${scriptName} executed:`, data))
+                .catch(error => console.error(`Error running ${scriptName}:`, error));
+        }
+
+        // Function to test a flapper by triggering its open then closed script with a 2-second delay.
+        function testFlapper(flapperName) {
+            // Construct the script filenames based on the flapper identifier.
+            const openScript = `Flapper-${flapperName}_Open.py`;
+            const closeScript = `Flapper-${flapperName}_Closed.py`;
+            
+            // Run the open script.
+            runScript(openScript);
+            
+            // After 2 seconds, run the close script.
+            setTimeout(function() {
+                runScript(closeScript);
+            }, 2000);
+        }
+
+        // Function to test the card servo by triggering its open (Card-Capture.py) then closed (Card-Release.py) script with a 2-second delay.
+        function testCardServo() {
+            runScript("Card-Capture.py");
+            setTimeout(function() {
+                runScript("Card-Release.py");
+            }, 2000);
+        }
+    </script>
 </body>
 </html>

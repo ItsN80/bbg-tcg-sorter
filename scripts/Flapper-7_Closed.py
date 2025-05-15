@@ -2,7 +2,7 @@ import pigpio
 import time
 import json
 
-SERVO_PIN = 20
+SERVO_PIN = 21
 
 # Absolute path to your config.json file.
 CONFIG_PATH = "/home/admin/Desktop/WebTest/storage/config.json"

@@ -5,3 +5,4 @@ storage/card_scanned.png
 counters/monthly_move_count.txt
 counters/move_count.txt
 static/images/card_scanned.png
+counters/failed_reads.txt

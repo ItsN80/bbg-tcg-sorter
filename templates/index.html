@@ -1,62 +1,117 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Servo and Card Input</title>
+    <meta charset="UTF-8">
+    <title>Card Sorter</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        .card-box {
-            border: 1px solid black;
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        h1, h2, h3 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        form {
+            max-width: 1200px;
+            margin: auto;
+            padding: 20px;
+            background-color: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+        .top-section {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .image-box {
+            flex: 1;
+            background-color: #ecf0f1;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .image-box img {
+            max-width: 100%;
+            border-radius: 8px;
+        }
+        .button-container {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
             padding: 10px;
-            margin-bottom: 10px;
-            width: fit-content;
+            background-color: #fdfefe;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+        }
+        .button-container button,
+        .button-container a button {
+            padding: 10px 20px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 5px;
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .button-container button:hover {
+            background-color: #2980b9;
+        }
+        .csv-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
         }
         .card-row {
             display: flex;
             flex-wrap: wrap;
-            justify-content: space-around;
-        }
-        .top-section {
-            display: flex;
-            justify-content: space-around;
-            align-items: flex-start;
-            margin-bottom: 20px;
-        }
-        .image-box {
-            border: 1px solid black;
-            padding: 10px;
-            text-align: center;
-            width: 300px;
-        }
-        .image-box img {
-            max-width: 100%;
-            height: auto;
-        }
-        .button-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            justify-content: center;
             gap: 15px;
         }
-        .csv-controls {
-            display: flex;
-            gap: 20px;
-            align-items: center;
+        .card-box {
+            background-color: #fafafa;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 8px;
+            width: 240px;
+            box-shadow: 2px 2px 8px rgba(0,0,0,0.05);
+        }
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 6px 10px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        label {
+            font-weight: 500;
+        }
+        input[type="checkbox"] {
+            margin-right: 5px;
         }
     </style>
 </head>
 <body>
     <h1>Card Sorter</h1>
-    <!-- Single form wrapping top section and card information -->
     <form method="POST">
         <div class="top-section">
-            <!-- Left image box: Card Scanned -->
             <div class="image-box">
                 <h3>Card Scanned</h3>
                 <img id="cardScanned" src="/static/images/card_scanned.png" alt="Scanned Card Image">
             </div>
-            
-            <!-- Middle container for all controls -->
             <div class="button-container">
-                <!-- Main controls: Sorting and CSV checkbox -->
                 <div>
                     <button type="submit" name="start_sorting">Start Sorting</button>
                     <label>
@@ -65,44 +120,28 @@
                     </label>
                     <button type="submit" name="stop_sorting">Stop Sorting</button>
                 </div>
-                
-                <!-- CSV controls: Download and Clear CSV -->
                 <div class="csv-controls">
-                    <!-- Download CSV remains a GET request -->
-                    <a href="{{ url_for('download_csv') }}">
-                        <button type="button">Download CSV</button>
-                    </a>
+                    <a href="{{ url_for('download_csv') }}"><button type="button">Download CSV</button></a>
                     <button type="submit" name="clear_csv">Clear CSV</button>
                 </div>
-                
-                <!-- Counters and monthly reset -->
                 <div>
-                    <p>Lifetime Cards Processed: <span id="moveCountDisplay">{{ moves }}</span></p>
-                    <p>Monthly Cards Processed: <span id="monthlyCountDisplay">{{ monthly_moves }}</span></p>
+                    <p>Lifetime Cards Processed: <strong><span id="moveCountDisplay">{{ moves }}</span></strong></p>
+                    <p>Monthly Cards Processed: <strong><span id="monthlyCountDisplay">{{ monthly_moves }}</span></strong></p>
                     <button type="submit" name="clear_monthly_count">Reset Monthly Count</button>
                 </div>
-                
-                <!-- Submit Cards button -->
                 <div>
                     <button type="submit" name="submit_card">Submit Cards</button>
                 </div>
-                
-                <!-- Settings button (using a link so it remains a GET request) -->
                 <div>
-                    <a href="{{ url_for('settings') }}">
-                        <button type="button">Settings</button>
-                    </a>
+                    <a href="{{ url_for('settings') }}"><button type="button">Settings</button></a>
                 </div>
             </div>
-            
-            <!-- Right image box: Card Identified -->
             <div class="image-box">
                 <h3>Card Identified</h3>
                 <img id="cardIdentified" src="{{ card_identified_url if card_identified_url else 'https://cards.scryfall.io/large/front/f/a/fae9abc7-ecd3-4042-a5b0-5f2b24491fa6.jpg?1562258009' }}" alt="Identified Card Image">
             </div>
         </div>
-        
-        <!-- Card Information Section -->
+
         <h2>Card Information</h2>
         <div class="card-row">
             {% for i in range(1, 6) %}
@@ -121,8 +160,7 @@
             {% endfor %}
         </div>
     </form>
-    
-    <!-- JavaScript to update counts and images via AJAX -->
+
     <script>
         function updateCounts() {
             fetch("/get_move_count")

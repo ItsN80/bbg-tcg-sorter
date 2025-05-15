@@ -8,6 +8,7 @@ import csv   # for writing CSV files
 import shutil  # for copying files
 import requests  # for downloading images
 import pigpio
+import urllib.parse
 
 app = Flask(__name__)
 
@@ -375,6 +376,34 @@ def settings():
     else:
         config = read_config()
         return render_template("settings.html", config=config, error=error)
+    
+@app.route("/run_script")
+def run_script():
+    raw_script = request.args.get("script")
+    if not raw_script:
+        return "No script specified", 400
+
+    # Decode the script path
+    script_rel_path = urllib.parse.unquote(raw_script)
+
+    # Combine with base directory
+    script_path = os.path.join(BASE_DIR, script_rel_path)
+
+    # Security check: prevent escaping out of the scripts directory
+    scripts_dir = os.path.join(BASE_DIR, "scripts")
+    if not script_path.startswith(scripts_dir):
+        return "Invalid script path", 403
+
+    # Check existence
+    if not os.path.exists(script_path):
+        return f"Script not found: {script_path}", 404
+
+    # Execute the script
+    try:
+        output = subprocess.check_output(["python3", script_path], stderr=subprocess.STDOUT)
+        return output.decode()
+    except subprocess.CalledProcessError as e:
+        return f"Script failed:\n{e.output.decode()}", 500
 
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0')

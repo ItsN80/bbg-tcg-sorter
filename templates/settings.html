@@ -98,24 +98,20 @@
 
         // Function to test a flapper by triggering its open then closed script with a 2-second delay.
         function testFlapper(flapperName) {
-            // Construct the script filenames based on the flapper identifier.
-            const openScript = `Flapper-${flapperName}_Open.py`;
-            const closeScript = `Flapper-${flapperName}_Closed.py`;
-            
-            // Run the open script.
+            const baseName = flapperName.replace('flapper_', 'Flapper-');
+            const openScript = `scripts/${baseName}_Open.py`;
+            const closeScript = `scripts/${baseName}_Closed.py`;
             runScript(openScript);
-            
-            // After 2 seconds, run the close script.
             setTimeout(function() {
                 runScript(closeScript);
             }, 2000);
         }
 
-        // Function to test the card servo by triggering its open (Card-Capture.py) then closed (Card-Release.py) script with a 2-second delay.
+        // Function to test the card servo
         function testCardServo() {
-            runScript("Card-Capture.py");
+            runScript("scripts/Card-Release.py");
             setTimeout(function() {
-                runScript("Card-Release.py");
+                runScript("scripts/Card-Capture.py");
             }, 2000);
         }
     </script>

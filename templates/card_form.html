@@ -1,7 +1,7 @@
-<label for="name{{ i }}">Name:(i.e: a or a-c)</label><br>
-<input type="text" id="name{{ i }}" name="name{{ i }}" value="{{ box_criteria.get(i, {}).get('name', '') }}"><br><br>
+<label for="name{{ i }}">Name (e.g., a or a-c):</label>
+<input type="text" id="name{{ i }}" name="name{{ i }}" value="{{ box_criteria.get(i, {}).get('name', '') }}">
 
-<label for="type{{ i }}">Type:</label><br>
+<label for="type{{ i }}">Type:</label>
 <select id="type{{ i }}" name="type{{ i }}">
     <option value="-None-" {% if box_criteria.get(i, {}).get('type', '') == "-None-" %}selected{% endif %}>-None-</option>
     <option value="Instant" {% if box_criteria.get(i, {}).get('type', '') == "Instant" %}selected{% endif %}>Instant</option>
@@ -11,18 +11,28 @@
     <option value="Artifact" {% if box_criteria.get(i, {}).get('type', '') == "Artifact" %}selected{% endif %}>Artifact</option>
     <option value="Land" {% if box_criteria.get(i, {}).get('type', '') == "Land" %}selected{% endif %}>Land</option>
     <option value="Token" {% if box_criteria.get(i, {}).get('type', '') == "Token" %}selected{% endif %}>Token</option>
-</select><br><br>
+</select>
 
-<label>Colors:</label><br>
+<label>Colors:</label>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px;">
+{% set color_icons = {
+    'W': 'https://svgs.scryfall.io/card-symbols/W.svg',
+    'U': 'https://svgs.scryfall.io/card-symbols/U.svg',
+    'B': 'https://svgs.scryfall.io/card-symbols/B.svg',
+    'R': 'https://svgs.scryfall.io/card-symbols/R.svg',
+    'G': 'https://svgs.scryfall.io/card-symbols/G.svg',
+    'C': 'https://svgs.scryfall.io/card-symbols/C.svg'
+} %}
 {% for color in ["W", "U", "B", "R", "G", "C"] %}
-    <input type="checkbox" id="{{ color }}{{ i }}" name="{{ color }}{{ i }}"
-           {% if color in box_criteria.get(i, {}).get('colors', []) %}checked{% endif %}>
-    <label for="{{ color }}{{ i }}">{{ color }}</label>
-{% endfor %}<br><br>
+    <label style="display: flex; align-items: center; gap: 5px;">
+        <input type="checkbox" id="{{ color }}{{ i }}" name="{{ color }}{{ i }}" {% if color in box_criteria.get(i, {}).get('colors', []) %}checked{% endif %}>
+        <img src="{{ color_icons[color] }}" alt="{{ color }}" width="20" height="20">
+    </label>
+{% endfor %}
+</div>
 
-<label for="cmc{{ i }}">CMC:</label><br>
-<input type="number" id="cmc{{ i }}" name="cmc{{ i }}" value="{{ box_criteria.get(i, {}).get('cmc', '') }}"><br><br>
+<label for="cmc{{ i }}">Converted Mana Cost (CMC):</label>
+<input type="number" id="cmc{{ i }}" name="cmc{{ i }}" value="{{ box_criteria.get(i, {}).get('cmc', '') }}">
 
-<label for="set_symbol{{ i }}">Set Symbol (3 characters):</label><br>
-<input type="text" id="set_symbol{{ i }}" name="set_symbol{{ i }}" maxlength="3" 
-       value="{{ box_criteria.get(i, {}).get('set_symbol', '') }}"><br><br>
+<label for="set_symbol{{ i }}">Set Symbol (3 characters):</label>
+<input type="text" id="set_symbol{{ i }}" name="set_symbol{{ i }}" maxlength="3" value="{{ box_criteria.get(i, {}).get('set_symbol', '') }}">

@@ -29,6 +29,7 @@ csv_lock = threading.Lock()  # Protects CSV file access
 # File Paths
 COUNTER_FILE = os.path.join(BASE_DIR, "counters", "move_count.txt")
 MONTHLY_COUNTER_FILE = os.path.join(BASE_DIR, "counters", "monthly_move_count.txt")
+FAILED_READS_FILE = os.path.join(BASE_DIR, "counters", "failed_reads.txt")
 CONFIG_FILE = os.path.join(BASE_DIR, "storage", "config.json")
 SCANNED_IMAGE_SRC = os.path.join(BASE_DIR, "storage", "scanned_card.png")
 SCANNED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_scanned.png")
@@ -58,6 +59,17 @@ def get_move_count():
             return int(f.read())
     except FileNotFoundError:
         return 0
+    
+def get_failed_read_count():
+    try:
+        with open(FAILED_READS_FILE, "r") as f:
+            return int(f.read())
+    except FileNotFoundError:
+        return 0
+
+def save_failed_read_count(count):
+    with open(FAILED_READS_FILE, "w") as f:
+        f.write(str(count))
 
 def save_move_count(count):
     with open(COUNTER_FILE, "w") as f:
@@ -76,6 +88,7 @@ def save_monthly_move_count(count):
 
 move_count = get_move_count()
 monthly_move_count = get_monthly_move_count()
+failed_read_count = get_failed_read_count()
 
 def read_config():
     try:
@@ -178,7 +191,7 @@ def update_images(card):
     # but in this revision we assume the front-end uses card_identified_url.
 
 def sorting_loop():
-    global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url
+    global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count
     while sorting_active:
         try:
             # Feed a new card.
@@ -195,10 +208,15 @@ def sorting_loop():
             except json.JSONDecodeError:
                 print("Error decoding card info. Using tray 10 as failover.")
                 card = {"error": "Decoding error"}
+                failed_read_count += 1
+                save_failed_read_count(failed_read_count)
+
             
             if "error" in card:
                 print(f"Error in card info: {card['error']}. Using tray 10 as failover.")
                 selected_box = 10
+                failed_read_count += 1
+                save_failed_read_count(failed_read_count)
             else:
                 if csv_enabled:
                     try:
@@ -312,10 +330,12 @@ def index():
             print("CSV file cleared.")
 
         elif "clear_monthly_count" in request.form:
-            # Reset monthly count
+            # Reset monthly count and failed read count
             monthly_move_count = 0
+            failed_read_count = 0
             save_monthly_move_count(monthly_move_count)
-            print("Monthly count reset to 0.")
+            save_failed_read_count(failed_read_count)
+            print("Monthly and failed read counts reset to 0.")
 
     # GET or POST: Always render the index
     return render_template(
@@ -332,7 +352,7 @@ def index():
 
 @app.route("/get_move_count", methods=["GET"])
 def get_move_count_route():
-    return jsonify({"moves": move_count,"monthly_moves": monthly_move_count,"card_identified_url": card_identified_url,"card_scanned_url": "/static/images/card_scanned.png"})
+    return jsonify({"moves": move_count,"monthly_moves": monthly_move_count, "failed_reads": failed_read_count,"card_identified_url": card_identified_url,"card_scanned_url": "/static/images/card_scanned.png"})
 
 @app.route("/download_csv", methods=["GET"])
 def download_csv():

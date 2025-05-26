@@ -34,6 +34,10 @@ CONFIG_FILE = os.path.join(BASE_DIR, "storage", "config.json")
 SCANNED_IMAGE_SRC = os.path.join(BASE_DIR, "storage", "scanned_card.png")
 SCANNED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_scanned.png")
 IDENTIFIED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_identified.png")
+FAILED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "failed")
+
+#Create Paths if they do not exist
+os.makedirs(FAILED_IMAGE_DEST, exist_ok=True)
 
 # Check if config.json exists; if not, copy config-default.json as config.json
 if not os.path.isfile(CONFIG_FILE):
@@ -217,6 +221,17 @@ def sorting_loop():
                 selected_box = 10
                 failed_read_count += 1
                 save_failed_read_count(failed_read_count)
+
+                # Save Failed Card Image
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                failed_image_name = f"failed_{timestamp}.png"
+                failed_image_path = os.path.join(FAILED_IMAGE_DEST, failed_image_name)
+                try:
+                    if os.path.exists(SCANNED_IMAGE_DEST):
+                        shutil.copy(SCANNED_IMAGE_DEST, failed_image_path)
+                        print(f"Saved failed read image: {failed_image_path}")
+                except Exception as e:
+                    print(f"Failed to save failed read image: {e}")
             else:
                 if csv_enabled:
                     try:
@@ -330,12 +345,26 @@ def index():
             print("CSV file cleared.")
 
         elif "clear_monthly_count" in request.form:
-            # Reset monthly count and failed read count
+            # Reset monthly count
             monthly_move_count = 0
-            failed_read_count = 0
             save_monthly_move_count(monthly_move_count)
-            save_failed_read_count(failed_read_count)
-            print("Monthly and failed read counts reset to 0.")
+            print("Monthly count reset to 0.")
+
+        elif "clear_failed_count" in request.form:
+            save_failed_read_count(0)
+            failed_read_count = 0
+
+            # Clear all files in /static/images/failed
+            for filename in os.listdir(FAILED_IMAGE_DEST):
+                file_path = os.path.join(FAILED_IMAGE_DEST, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                except Exception as e:
+                    print(f"Failed to delete {file_path}: {e}")
+
+            print("Failed read count reset and failed images deleted.")
+
 
     # GET or POST: Always render the index
     return render_template(
@@ -396,6 +425,19 @@ def settings():
     else:
         config = read_config()
         return render_template("settings.html", config=config, error=error)
+    
+@app.route("/failed")
+def failed_gallery():
+    try:
+        image_filenames = sorted(
+            f for f in os.listdir(FAILED_IMAGE_DEST)
+            if f.lower().endswith(".png")
+        )
+    except Exception as e:
+        image_filenames = []
+        print(f"Error loading failed images: {e}")
+
+    return render_template("failed.html", images=image_filenames)
     
 @app.route("/run_script")
 def run_script():

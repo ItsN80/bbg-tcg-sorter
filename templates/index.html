@@ -130,12 +130,14 @@
                     <p>Monthly Cards Processed: <strong><span id="monthlyCountDisplay">{{ monthly_moves }}</span></strong></p>
                     <p>Failed Reads: <strong><span id="failedReadsDisplay">0</span></strong></p>
                     <button type="submit" name="clear_monthly_count">Reset Monthly Count</button>
+                    <button type="submit" name="clear_failed_count">Reset Failed Count</button>
                 </div>
                 <div>
                     <button type="submit" name="submit_card">Submit Cards</button>
                 </div>
                 <div>
                     <a href="{{ url_for('settings') }}"><button type="button">Settings</button></a>
+                    <a href="{{ url_for('failed_gallery') }}"><button type="button">View Failed Reads</button></a>
                 </div>
             </div>
             <div class="image-box">
@@ -164,7 +166,11 @@
     </form>
 
     <script>
+        let paused = false;
+        
         function updateCounts() {
+            if (paused) return;
+        
             fetch("/get_move_count")
                 .then(response => response.json())
                 .then(data => {
@@ -178,7 +184,17 @@
                 })
                 .catch(error => console.error("Error fetching counts:", error));
         }
+    
         setInterval(updateCounts, 2000);
+    
+        // Pause polling on button press
+        document.querySelector("form").addEventListener("submit", function(e) {
+            if (e.submitter && e.submitter.name === "clear_failed_count") {
+                paused = true;
+                setTimeout(() => paused = false, 3000);
+            }
+        });
     </script>
+
 </body>
 </html>

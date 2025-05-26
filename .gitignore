@@ -6,3 +6,4 @@ counters/monthly_move_count.txt
 counters/move_count.txt
 static/images/card_scanned.png
 counters/failed_reads.txt
+static/images/failed/*

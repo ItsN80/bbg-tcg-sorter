@@ -201,9 +201,13 @@ def sorting_loop():
             # Feed a new card.
             feed_result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")], capture_output=True, text=True)
             if feed_result.returncode != 0:
-                print("Feed failed (return code: {}), stopping sorting.".format(feed_result.returncode))
-                sorting_active = False
-                break
+                print("Initial feed failed, retrying after 2 seconds...")
+                time.sleep(2)
+                feed_result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")], capture_output=True, text=True)
+                if feed_result.returncode != 0:
+                    print("Feed failed again (return code: {}), stopping sorting.".format(feed_result.returncode))
+                    sorting_active = False
+                    break
             
             # Read the card info.
             result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Read-Card.py")],capture_output=True, text=True, check=True)

@@ -1,29 +1,64 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Failed Reads</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <style>
-        body { font-family: Arial; background: #f0f0f0; padding: 20px; }
-        .grid { display: flex; flex-wrap: wrap; gap: 15px; }
-        .card {
-            background: white; padding: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            border-radius: 8px;
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9fb;
+            padding: 20px;
+            color: #333;
         }
-        .card img { max-width: 200px; height: auto; border-radius: 4px; }
-        .card p { font-size: 0.8rem; text-align: center; margin-top: 5px; }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .failed-pair {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            gap: 20px;
+            background: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .failed-pair img {
+            max-width: 300px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
-    <h1>Failed Card Reads</h1>
-    <a href="{{ url_for('index') }}">← Back to Home</a>
-    <div class="grid">
-        {% for img in images %}
-        <div class="card">
-            <img src="{{ url_for('static', filename='images/failed/' + img) }}" alt="Failed Scan">
-            <p>{{ img }}</p>
+    <h1>Failed Reads Gallery</h1>
+
+    <div style="text-align: center; margin: 20px;">
+    <a href="{{ url_for('index') }}">
+        <button style="padding: 10px 20px; font-size: 1rem; border: none; border-radius: 5px; background-color: #3498db; color: white; cursor: pointer;">
+            Return to Main Screen
+        </button>
+    </a>
+</div>
+
+    {% for timestamp in timestamps %}
+    <div class="failed-pair">
+        <div>
+            <div class="label">Scanned</div>
+            <img src="{{ url_for('static', filename='images/failed/' ~ 'failed_' ~ timestamp ~ '.png') }}" alt="Scanned Image">
         </div>
-        {% endfor %}
+        <div>
+            <div class="label">Combined Crop</div>
+            <img src="{{ url_for('static', filename='images/failed/' ~ timestamp ~ '_combined_crop.jpg') }}" alt="Combined Crop Image">
+        </div>
     </div>
+    {% endfor %}
 </body>
 </html>

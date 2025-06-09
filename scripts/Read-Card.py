@@ -221,8 +221,8 @@ def main():
     else:
         print(json.dumps({"error": f"No information found for card: {card_name}"}))
 
-    # Optionally cleanup images (do not include scanned_copy so it persists)
-    cleanup_images(processed_image, combined_image)
+    # Optionally cleanup images (do not include scanned_copy & combined_image so it persists)
+    cleanup_images(processed_image)
 
 if __name__ == "__main__":
     main()

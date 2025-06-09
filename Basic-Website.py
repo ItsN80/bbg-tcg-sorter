@@ -233,9 +233,19 @@ def sorting_loop():
                 try:
                     if os.path.exists(SCANNED_IMAGE_DEST):
                         shutil.copy(SCANNED_IMAGE_DEST, failed_image_path)
+                        # shutil.copy(SCANNED_IMAGE_DEST, failed_image_path)
                         print(f"Saved failed read image: {failed_image_path}")
                 except Exception as e:
                     print(f"Failed to save failed read image: {e}")
+                # Save the cropped image as well
+                combined_crop_src = os.path.join(BASE_DIR, "storage", "combined_crop.jpg")
+                combined_crop_dest = os.path.join(FAILED_IMAGE_DEST, f"{timestamp}_combined_crop.jpg")
+                try:
+                    if os.path.exists(combined_crop_src):
+                        shutil.copy(combined_crop_src, combined_crop_dest)
+                        print(f"Saved combined crop image: {combined_crop_dest}")
+                except Exception as e:
+                    print(f"Failed to save combined crop image: {e}")
             else:
                 if csv_enabled:
                     try:
@@ -433,15 +443,20 @@ def settings():
 @app.route("/failed")
 def failed_gallery():
     try:
-        image_filenames = sorted(
-            f for f in os.listdir(FAILED_IMAGE_DEST)
-            if f.lower().endswith(".png")
-        )
-    except Exception as e:
-        image_filenames = []
-        print(f"Error loading failed images: {e}")
+        files = os.listdir(FAILED_IMAGE_DEST)
+        timestamps = set()
 
-    return render_template("failed.html", images=image_filenames)
+        for file in files:
+            if file.startswith("failed_") and file.endswith(".png"):
+                ts = file.replace("failed_", "").replace(".png", "")
+                timestamps.add(ts)
+        
+        timestamps = sorted(timestamps, reverse=True)
+    except Exception as e:
+        print(f"Error loading failed images: {e}")
+        timestamps = []
+
+    return render_template("failed.html", timestamps=timestamps)
     
 @app.route("/run_script")
 def run_script():

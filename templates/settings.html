@@ -84,6 +84,12 @@
     {% endif %}
     <form method="POST">
         <div class="section">
+            <h2>System Name</h2>
+            <label for="system_name">System Name:</label>
+            <input type="text" id="system_name" name="system_name" value="{{ config.system_name or '' }}">
+        </div>
+
+        <div class="section">
             <h2>AWS Settings</h2>
             <label for="aws_access_key_id">Access Key ID:</label>
             <input type="text" id="aws_access_key_id" name="aws_access_key_id" value="{{ config.aws.access_key_id or '' }}">
@@ -130,10 +136,33 @@
             <button type="button" onclick="testCardServo()">Test Card Servo</button>
         </div>
 
+        <div class="section">
+            <h2>Shutdown Email Settings</h2>
+            <label for="smtp_server">SMTP Server:</label>
+            <input type="text" id="smtp_server" name="smtp_server" value="{{ config.smtp.server or '' }}">
+            <label for="smtp_port">SMTP Port:</label>
+            <input type="number" id="smtp_port" name="smtp_port" value="{{ config.smtp.port or 587 }}">
+            <label for="smtp_username">SMTP Username:</label>
+            <input type="text" id="smtp_username" name="smtp_username" value="{{ config.smtp.username or '' }}">
+            <label for="smtp_password">SMTP Password:</label>
+            <input type="password" id="smtp_password" name="smtp_password" value="{{ config.smtp.password or '' }}">
+            <label for="smtp_from">From Email:</label>
+            <input type="email" id="smtp_from" name="smtp_from" value="{{ config.smtp.from_email or '' }}">
+            <label for="smtp_to">To Email:</label>
+            <input type="email" id="smtp_to" name="smtp_to" value="{{ config.smtp.to_email or '' }}">
+            <label><input type="checkbox" name="smtp_enabled" {% if config.smtp.enabled %}checked{% endif %}> Enable Shutdown Summary Email</label>
+        </div>
+
         <div class="form-actions">
             <button type="submit" name="save">Save</button>
             <button type="submit" name="cancel">Cancel</button>
+            <!-- New Reboot and Shutdown Buttons -->
+            <button type="button" onclick="confirmAction('reboot')" style="background-color: #e67e22;">Reboot Pi</button>
+            <button type="button" onclick="confirmAction('shutdown')" style="background-color: #c0392b;">Shutdown Pi</button>
         </div>
+
+        <!-- Hidden input to pass system actions -->
+        <input type="hidden" id="system_action" name="system_action" value="">
     </form>
 
     <script>
@@ -153,6 +182,14 @@
         function testCardServo() {
             runScript("scripts/Card-Release.py");
             setTimeout(() => runScript("scripts/Card-Capture.py"), 2000);
+        }
+
+        function confirmAction(actionType) {
+            const actionText = actionType === 'reboot' ? 'Reboot the Raspberry Pi' : 'Shutdown the Raspberry Pi';
+            if (confirm(`Are you sure you want to ${actionText}?`)) {
+                document.getElementById('system_action').value = actionType;
+                document.querySelector('form').submit();
+            }
         }
     </script>
 </body>

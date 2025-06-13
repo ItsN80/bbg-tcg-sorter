@@ -18,7 +18,7 @@
             color: #2c3e50;
         }
         form {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: auto;
             padding: 20px;
             background-color: #ffffff;
@@ -46,6 +46,7 @@
             flex: 2;
             display: flex;
             flex-direction: column;
+            justify-content: center;
             align-items: center;
             gap: 20px;
             padding: 10px;
@@ -81,7 +82,7 @@
         .card-box {
             background-color: #fafafa;
             border: 1px solid #ccc;
-            padding: 15px;
+            padding: 5px;
             border-radius: 8px;
             width: 240px;
             box-shadow: 2px 2px 8px rgba(0,0,0,0.05);
@@ -147,6 +148,9 @@
         </div>
 
         <h2>Card Information</h2>
+            <p style="font-size: 0.9rem; color: #665; text-align: center; margin-top: -10px;">
+            Before Clicking The Start Sorting Button: Customize Each Card Box Below, Then Click Submit Cards
+            </p>
         <div class="card-row">
             {% for i in range(1, 6) %}
             <div class="card-box">

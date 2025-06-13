@@ -9,6 +9,8 @@ import shutil  # for copying files
 import requests  # for downloading images
 import pigpio
 import urllib.parse
+import smtplib
+from email.mime.text import MIMEText
 
 app = Flask(__name__)
 
@@ -193,6 +195,32 @@ def update_images(card):
     
     # Optionally, you could download the image from card_identified_url as well,
     # but in this revision we assume the front-end uses card_identified_url.
+
+def send_shutdown_summary_email(config):
+            if not config.get("smtp", {}).get("enabled"):
+                return
+            try:
+                body = f"""Raspberry Pi Sorter Shutdown Summary ({config.get("system_name", "Unnamed System")}):
+
+            Lifetime Cards Processed: {move_count}
+            Monthly Cards Processed: {monthly_move_count}
+            Failed Reads: {get_failed_read_count()}
+
+            Shutdown executed at: {time.strftime("%Y-%m-%d %H:%M:%S")}
+            """
+
+                msg = MIMEText(body)
+                msg['Subject'] = f"[{config.get('system_name', 'Sorter')}] Shutdown Summary"
+                msg['From'] = config["smtp"]["from_email"]
+                msg['To'] = config["smtp"]["to_email"]
+
+                with smtplib.SMTP(config["smtp"]["server"], config["smtp"]["port"]) as server:
+                    server.starttls()
+                    server.login(config["smtp"]["username"], config["smtp"]["password"])
+                    server.sendmail(msg['From'], [msg['To']], msg.as_string())
+                print("Shutdown summary email sent.")
+            except Exception as e:
+                print("Failed to send shutdown summary email:", e)
 
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count
@@ -408,12 +436,35 @@ def download_csv():
 def settings():
     error = None
     if request.method == "POST":
+        # Handle reboot/shutdown requests
+        action = request.form.get("system_action")
+        if action == "reboot":
+            print("Reboot requested.")
+            os.system("sudo reboot")
+            return "Rebooting...", 200
+        elif action == "shutdown":
+            print("Shutdown requested.")
+            config = read_config()
+            send_shutdown_summary_email(config)
+            os.system("sudo shutdown now")
+            return "Shutting down...", 200
+
         if "save" in request.form:
             config = read_config()
+            config["system_name"] = request.form.get("system_name", "")
             config["aws"]["access_key_id"] = request.form.get("aws_access_key_id", "")
             config["aws"]["secret_access_key"] = request.form.get("aws_secret_access_key", "")
             config["aws"]["region_name"] = request.form.get("aws_region_name", "")
             config["scryfall_search_url"] = request.form.get("scryfall_search_url", "")
+            if "smtp" not in config:
+                config["smtp"] = {}  # Ensure smtp key exists in config
+            config["smtp"]["server"] = request.form.get("smtp_server", "")
+            config["smtp"]["port"] = int(request.form.get("smtp_port", 587))
+            config["smtp"]["username"] = request.form.get("smtp_username", "")
+            config["smtp"]["password"] = request.form.get("smtp_password", "")
+            config["smtp"]["from_email"] = request.form.get("smtp_from", "")
+            config["smtp"]["to_email"] = request.form.get("smtp_to", "")
+            config["smtp"]["enabled"] = True if request.form.get("smtp_enabled") else False
             for flapper in config.get("flappers", {}):
                 open_field = f"{flapper}_open_degrees"
                 close_field = f"{flapper}_close_degrees"

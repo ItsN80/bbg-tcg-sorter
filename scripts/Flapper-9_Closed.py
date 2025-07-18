@@ -1,11 +1,13 @@
 import pigpio
 import time
 import json
+import os
 
 SERVO_PIN = 13
 
-# Absolute path to your config.json file.
-CONFIG_PATH = "/home/admin/Desktop/WebTest/storage/config.json"
+# Dynamic path to config.json
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, "..", "storage", "config.json")
 
 # Create a pigpio instance
 pi = pigpio.pi()

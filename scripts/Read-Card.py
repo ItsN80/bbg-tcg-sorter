@@ -9,24 +9,29 @@ import boto3
 import requests
 import shutil  # Added for copying files
 
-# Define the output directory and ensure it exists
-output_directory = "/home/admin/Desktop/WebTest/storage"
-output_directory_scanned = "/home/admin/Desktop/WebTest/static/images"
+# Base directory of the script
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Paths relative to the script location
+output_directory = os.path.normpath(os.path.join(BASE_DIR, "..", "storage"))
+output_directory_scanned = os.path.normpath(os.path.join(BASE_DIR, "..", "static", "images"))
+
+# Ensure output directories exist
 os.makedirs(output_directory, exist_ok=True)
 os.makedirs(output_directory_scanned, exist_ok=True)
 
+# Path to config.json
+CONFIG_PATH = os.path.join(output_directory, "config.json")
+
 # Suppress libcamera logs
 os.environ["LIBCAMERA_LOG_LEVELS"] = "3"
-
-# Load configuration from external file
-CONFIG_FILE = "/home/admin/Desktop/WebTest/storage/config.json"
 
 def load_config(config_file):
     """Loads configuration settings from a JSON file."""
     with open(config_file, "r") as file:
         return json.load(file)
 
-config = load_config(CONFIG_FILE)
+config = load_config(CONFIG_PATH)
 aws_config = config.get("aws", {})
 aws_access_key_id = aws_config.get("access_key_id")
 aws_secret_access_key = aws_config.get("secret_access_key")

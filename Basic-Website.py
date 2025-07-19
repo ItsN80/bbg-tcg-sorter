@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 import subprocess
 import os
@@ -490,6 +492,14 @@ def settings():
     else:
         config = read_config()
         return render_template("settings.html", config=config, error=error)
+    
+@app.route("/update_program", methods=["POST"])
+def update_program():
+    try:
+        result = subprocess.check_output(["git", "-C", BASE_DIR, "pull"], stderr=subprocess.STDOUT)
+        return jsonify({"success": True, "message": result.decode()})
+    except subprocess.CalledProcessError as e:
+        return jsonify({"success": False, "message": e.output.decode()}), 500
     
 @app.route("/failed")
 def failed_gallery():

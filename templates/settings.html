@@ -159,6 +159,7 @@
             <!-- New Reboot and Shutdown Buttons -->
             <button type="button" onclick="confirmAction('reboot')" style="background-color: #e67e22;">Reboot Pi</button>
             <button type="button" onclick="confirmAction('shutdown')" style="background-color: #c0392b;">Shutdown Pi</button>
+            <button type="button" onclick="updateProgram()">Update Program</button>
         </div>
 
         <!-- Hidden input to pass system actions -->
@@ -191,6 +192,23 @@
                 document.querySelector('form').submit();
             }
         }
+
+        function updateProgram() {
+            fetch("/update_program", { method: "POST" })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert("Program updated:\n" + data.message);
+                        location.reload();
+                    } else {
+                        alert("Update failed:\n" + data.message);
+                    }
+                })
+                .catch(err => {
+                    alert("Error updating program:\n" + err);
+                });
+        }  
+        
     </script>
 </body>
 </html>

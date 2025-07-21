@@ -81,21 +81,17 @@ def crop_and_rotate_image(input_file, output_file):
         rotated_img.save(output_file)
 
 def crop_combined_areas(image_path):
-    """
-    Crops two areas from the processed image and combines them vertically:
-      - Top crop for the card name.
-      - Bottom crop for the collector number and set code.
-    
-    Coordinates must be (left, upper, right, lower) with upper < lower.
-    """
     with Image.open(image_path) as img:
-        # Top crop (card name)
-        crop1 = img.crop((160, 155, 577, 235))  # Adjust as needed
-        
-        # Bottom crop (collector number & set code)
-        crop2 = img.crop((160, 828, 577, 885))  # Adjust as needed
+        crop_cfg = config.get("camera_crop", {})
+        top = crop_cfg.get("top_crop", {})
+        bot = crop_cfg.get("bottom_crop", {})
 
-        # Combine the two crops vertically
+        crop1 = img.crop((top.get("x1", 160), top.get("y1", 155),
+                          top.get("x2", 577), top.get("y2", 235)))
+
+        crop2 = img.crop((bot.get("x1", 160), bot.get("y1", 828),
+                          bot.get("x2", 577), bot.get("y2", 885)))
+
         combined_width = max(crop1.width, crop2.width)
         combined_height = crop1.height + crop2.height
         combined_img = Image.new("RGB", (combined_width, combined_height), color=(255, 255, 255))
@@ -106,8 +102,8 @@ def crop_combined_areas(image_path):
         combined_path = os.path.join(output_directory, "combined_crop.jpg")
         combined_img.save(combined_path)
 
-        # Return the path and the height of the top crop (to separate OCR results)
         return combined_path, crop1.height
+
 
 def detect_text_combined(image_path, crop1_height):
     """

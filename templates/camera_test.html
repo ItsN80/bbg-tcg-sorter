@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Camera Testing</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        form {
+            max-width: 1000px;
+            margin: auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #fdfdfd;
+            border: 1px solid #dcdcdc;
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+            font-weight: 500;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-actions {
+            text-align: center;
+            margin-top: 30px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        img {
+            display: block;
+            max-width: 100%;
+            margin: 10px auto;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+        }
+        .image-box {
+            background-color: #f7f9fb;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Camera Testing</h1>
+
+    {% if error %}
+        <p style="color:red; text-align:center;">{{ error }}</p>
+    {% endif %}
+
+    <form method="POST">
+        <div class="section">
+            <h2>Top Crop Coordinates</h2>
+            <label for="top_x1">Top X1:</label>
+            <input type="number" name="top_x1" value="{{ config.camera_crop.top_crop.x1 }}">
+
+            <label for="top_y1">Top Y1:</label>
+            <input type="number" name="top_y1" value="{{ config.camera_crop.top_crop.y1 }}">
+
+            <label for="top_x2">Top X2:</label>
+            <input type="number" name="top_x2" value="{{ config.camera_crop.top_crop.x2 }}">
+
+            <label for="top_y2">Top Y2:</label>
+            <input type="number" name="top_y2" value="{{ config.camera_crop.top_crop.y2 }}">
+        </div>
+
+        <div class="section">
+            <h2>Bottom Crop Coordinates</h2>
+            <label for="bottom_x1">Bottom X1:</label>
+            <input type="number" name="bottom_x1" value="{{ config.camera_crop.bottom_crop.x1 }}">
+
+            <label for="bottom_y1">Bottom Y1:</label>
+            <input type="number" name="bottom_y1" value="{{ config.camera_crop.bottom_crop.y1 }}">
+
+            <label for="bottom_x2">Bottom X2:</label>
+            <input type="number" name="bottom_x2" value="{{ config.camera_crop.bottom_crop.x2 }}">
+
+            <label for="bottom_y2">Bottom Y2:</label>
+            <input type="number" name="bottom_y2" value="{{ config.camera_crop.bottom_crop.y2 }}">
+        </div>
+
+        <div class="form-actions">
+            <button type="submit">Capture & Save Crops</button>
+            <a href="{{ url_for('settings') }}"><button type="button">Back to Settings</button></a>
+        </div>
+
+        <div class="image-box">
+            <h2>Original Image</h2>
+            <img src="/static/images/card_scanned.png">
+        </div>
+        <div class="image-box">
+            <h2>Cropped Combined Image</h2>
+            <img src="/static/images/combined_crop.jpg">
+        </div>
+    </form>
+</body>
+</html>

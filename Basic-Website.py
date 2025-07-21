@@ -518,6 +518,42 @@ def failed_gallery():
         timestamps = []
 
     return render_template("failed.html", timestamps=timestamps)
+
+@app.route("/camera_test", methods=["GET", "POST"])
+def camera_test():
+    config = read_config()
+    error = None
+
+    # Ensure camera_crop and subkeys exist to prevent template errors
+    if "camera_crop" not in config:
+        config["camera_crop"] = {
+            "top_crop": {"x1": 160, "y1": 155, "x2": 577, "y2": 235},
+            "bottom_crop": {"x1": 160, "y1": 828, "x2": 577, "y2": 885}
+        }
+
+    if request.method == "POST":
+        try:
+            config["camera_crop"] = {
+                "top_crop": {
+                    "x1": int(request.form.get("top_x1", 0)),
+                    "y1": int(request.form.get("top_y1", 0)),
+                    "x2": int(request.form.get("top_x2", 672)),
+                    "y2": int(request.form.get("top_y2", 300))
+                },
+                "bottom_crop": {
+                    "x1": int(request.form.get("bottom_x1", 0)),
+                    "y1": int(request.form.get("bottom_y1", 0)),
+                    "x2": int(request.form.get("bottom_x2", 672)),
+                    "y2": int(request.form.get("bottom_y2", 300))
+                }
+            }
+
+            write_config(config)
+            subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Test-Camera.py")], check=True)
+        except Exception as e:
+            error = f"Failed to update camera settings: {str(e)}"
+
+    return render_template("camera_test.html", config=config, error=error)
     
 @app.route("/run_script")
 def run_script():

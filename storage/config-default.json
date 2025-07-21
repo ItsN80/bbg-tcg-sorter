@@ -56,5 +56,19 @@
         "from_email": "",
         "to_email": "",
         "enabled": false
+    },
+    "camera_crop": {
+        "top_crop": {
+            "x1": 160,
+            "y1": 155,
+            "x2": 577,
+            "y2": 235
+        },
+        "bottom_crop": {
+            "x1": 160,
+            "y1": 828,
+            "x2": 577,
+            "y2": 885
+        }
     }
 }

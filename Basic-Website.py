@@ -453,11 +453,17 @@ def settings():
 
         if "save" in request.form:
             config = read_config()
+            config.setdefault("aws", {})
+            config.setdefault("ollama", {})
+            config.setdefault("recognition_provider", "aws")
             config["system_name"] = request.form.get("system_name", "")
             config["aws"]["access_key_id"] = request.form.get("aws_access_key_id", "")
             config["aws"]["secret_access_key"] = request.form.get("aws_secret_access_key", "")
             config["aws"]["region_name"] = request.form.get("aws_region_name", "")
             config["scryfall_search_url"] = request.form.get("scryfall_search_url", "")
+            config["recognition_provider"] = request.form.get("recognition_provider", "aws")
+            config["ollama"]["base_url"] = request.form.get("ollama_base_url", "").strip()
+            config["ollama"]["model"] = request.form.get("ollama_model", "").strip()
             if "smtp" not in config:
                 config["smtp"] = {}  # Ensure smtp key exists in config
             config["smtp"]["server"] = request.form.get("smtp_server", "")

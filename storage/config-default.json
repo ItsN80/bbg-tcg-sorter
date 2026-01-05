@@ -4,6 +4,12 @@
         "secret_access_key": "",
         "region_name": ""
     },
+    "recognition_provider": "aws",
+    "ollama": {
+        "base_url": "http://YOUR-TRUENAS-IP:11434",
+        "model": "minicpm-v:latest",
+        "timeout_seconds": 60
+    },
     "scryfall_search_url": "https://api.scryfall.com/cards/named?fuzzy={}",
     "flappers": {
         "flapper_1": {

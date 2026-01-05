@@ -101,7 +101,7 @@ def stop_motor_3():
         pi.write(pin, 0)
 
 try:
-    #print("Run until Sensor 1 goes high, then stop motor 2")
+    print("Run until Sensor 1 goes high, then stop motor 2")
     # Start Motor 1, 2, and 3 with initial settings.
     motor1_thread = threading.Thread(target=motor_step_sequence, args=(MOTOR_1_PINS, STEPPER_SEQ_FULLSPEED, motor1_stop_event, False, 0.001))
     motor2_thread = threading.Thread(target=motor_step_sequence, args=(MOTOR_2_PINS, STEPPER_SEQ_HALFSPEED, motor2_stop_event, True, 0.001))
@@ -114,7 +114,7 @@ try:
     start_time = time.time()
     while pi.read(sensor1_pin) == 0:
         if time.time() - start_time > 8:
-            #print("Timeout: Sensor 1 did not go high within 5 seconds")
+            print("Timeout: Sensor 1 did not go high within 5 seconds")
             stop_motor_1()
             stop_motor_2()
             stop_motor_3()
@@ -123,12 +123,12 @@ try:
             sys.exit(1)
         time.sleep(0.05)
 
-    #print("Sensor 1 High")
+    print("Sensor 1 High")
     time.sleep(1)
     stop_motor_2()
     stop_motor_1()
 
-    #print("Restarting Motor 1 & 2 with different settings")
+    print("Restarting Motor 1 & 2 with different settings")
     # Clear the stop events before restarting.
     motor1_stop_event.clear()
     motor2_stop_event.clear()
@@ -141,7 +141,7 @@ try:
     start_time = time.time()
     while pi.read(sensor1_pin) == 1:
         if time.time() - start_time > 5:
-            #print("Timeout: Sensor 1 did not go low within 3 seconds")
+            print("Timeout: Sensor 1 did not go low within 3 seconds")
             stop_motor_1()
             stop_motor_2()
             stop_motor_3()
@@ -150,19 +150,19 @@ try:
             sys.exit(1)
         time.sleep(0.05)
     
-    #print("Sensor 1 Low")
+    print("Sensor 1 Low")
     time.sleep(1)
 
-    #print("Stopping Motor 2")
+    print("Stopping Motor 2")
     stop_motor_2()
-    #print("Stopping Motor 1")
+    print("Stopping Motor 1")
     stop_motor_1()
 
     # Continue to run Motor 3 until Sensor 2 goes high.
     while pi.read(sensor2_pin) == 0:
         time.sleep(0.1)
 
-    #print("Stopping Motor 3")
+    print("Stopping Motor 3")
     stop_motor_3()
     pi.stop()
 

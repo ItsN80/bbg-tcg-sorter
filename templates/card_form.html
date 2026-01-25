@@ -9,6 +9,7 @@
     <option value="Creature" {% if box_criteria.get(i, {}).get('type', '') == "Creature" %}selected{% endif %}>Creature</option>
     <option value="Legendary Creature" {% if box_criteria.get(i, {}).get('type', '') == "Legendary Creature" %}selected{% endif %}>Legendary Creature</option>
     <option value="Artifact" {% if box_criteria.get(i, {}).get('type', '') == "Artifact" %}selected{% endif %}>Artifact</option>
+    <option value="Enchantment" {% if box_criteria.get(i, {}).get('type', '') == "Enchantment" %}selected{% endif %}>Enchantment</option>
     <option value="Land" {% if box_criteria.get(i, {}).get('type', '') == "Land" %}selected{% endif %}>Land</option>
     <option value="Token" {% if box_criteria.get(i, {}).get('type', '') == "Token" %}selected{% endif %}>Token</option>
 </select>

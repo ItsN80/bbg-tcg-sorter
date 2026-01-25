@@ -53,6 +53,9 @@
         "open_degrees": 5,
         "close_degrees": 160
     },
+    "feed": {
+        "motor2_extra_feed_sec": 1.2
+    },
     "system_name": "My Card Sorter",
     "smtp": {
         "server": "",

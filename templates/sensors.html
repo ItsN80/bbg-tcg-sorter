@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sensor Status</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 30px; background:#111; color:#eee; }
+    h1 { font-size: 48px; margin: 0 0 20px; }
+    .wrap { display:flex; gap:20px; flex-wrap:wrap; }
+    .card {
+      flex: 1 1 420px;
+      border-radius: 16px;
+      padding: 24px;
+      border: 2px solid #333;
+      background: #1b1b1b;
+    }
+    .title { font-size: 34px; margin: 0 0 8px; }
+    .pin { font-size: 24px; opacity: .85; margin-bottom: 16px; }
+    .state {
+      font-size: 72px;
+      font-weight: 900;
+      padding: 22px 24px;
+      border-radius: 16px;
+      text-align:center;
+    }
+    .clear { background:#0b3; color:#001; }
+    .trig { background:#c22; color:#200; }
+    .raw { font-size: 20px; opacity: .8; margin-top: 12px; text-align:center; }
+  </style>
+</head>
+<body>
+  <h1>IR Sensor Status</h1>
+  <div style="margin: 0 0 20px;">
+    <a href="/" style="text-decoration:none;">
+      <button style="font-size:22px; padding:12px 18px; border-radius:12px; cursor:pointer;">
+        ⬅ Back to Home
+      </button>
+    </a>
+  </div>
+
+
+  <div class="wrap">
+    <div class="card">
+      <div class="title">Sensor 1</div>
+      <div id="pin1" class="pin">pin: --</div>
+      <div id="state1" class="state">--</div>
+      <div id="raw1" class="raw">raw: --</div>
+    </div>
+
+    <div class="card">
+      <div class="title">Sensor 2</div>
+      <div id="pin2" class="pin">pin: --</div>
+      <div id="state2" class="state">--</div>
+      <div id="raw2" class="raw">raw: --</div>
+    </div>
+  </div>
+
+  <script>
+    function setState(el, triggered) {
+      if (triggered === 1) {
+        el.className = "state trig";
+        el.innerText = "TRIGGERED";
+      } else {
+        el.className = "state clear";
+        el.innerText = "CLEAR";
+      }
+    }
+
+    async function refresh() {
+      const res = await fetch("/sensor_status");
+      const data = await res.json();
+
+      document.getElementById("pin1").innerText = `pin: ${data.sensor1.pin}`;
+      document.getElementById("pin2").innerText = `pin: ${data.sensor2.pin}`;
+
+      setState(document.getElementById("state1"), data.sensor1.triggered);
+      setState(document.getElementById("state2"), data.sensor2.triggered);
+
+      document.getElementById("raw1").innerText = `raw: ${data.sensor1.raw}`;
+      document.getElementById("raw2").innerText = `raw: ${data.sensor2.raw}`;
+    }
+
+    refresh();
+    setInterval(refresh, 200); // 5x/second
+  </script>
+</body>
+</html>

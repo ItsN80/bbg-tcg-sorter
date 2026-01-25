@@ -159,6 +159,18 @@
         </div>
 
         <div class="section">
+            <h2>Feed Settings</h2>
+
+            <label for="motor2_extra_feed_sec">Motor 2 Extra Feed Time (seconds):</label>
+            <input type="text" id="motor2_extra_feed_sec" name="motor2_extra_feed_sec" value="{{ config.get('feed', {}).get('motor2_extra_feed_sec', 1.2) }}">
+
+            <p style="margin-top:8px; opacity:0.8;">
+                After Sensor 1 is triggered, Motor 2 will continue feeding for this many seconds before stopping and reversing.
+            </p>
+        </div>
+
+
+        <div class="section">
             <h2>Shutdown Email Settings</h2>
             <label for="smtp_server">SMTP Server:</label>
             <input type="text" id="smtp_server" name="smtp_server" value="{{ config.smtp.server or '' }}">

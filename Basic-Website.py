@@ -61,6 +61,38 @@ if not pi.connected:
     print("Failed to connect to pigpio daemon.")
     exit()
 
+# Card Sensors
+sensor1_pin = 8
+sensor2_pin = 14
+
+# Card Sensor State - raw = 0 when triggered, raw = 1 when clear
+sensor_active_low = False
+
+# Configure GPIO pins for input
+pi.set_mode(sensor1_pin, pigpio.INPUT)
+pi.set_mode(sensor2_pin, pigpio.INPUT)
+
+# Use pull-ups so the input doesn't float (common for active-low sensors)
+pi.set_pull_up_down(sensor1_pin, pigpio.PUD_UP)
+pi.set_pull_up_down(sensor2_pin, pigpio.PUD_UP)
+
+
+def read_sensor_status():
+    s1_raw = pi.read(sensor1_pin)
+    s2_raw = pi.read(sensor2_pin)
+
+    if sensor_active_low:
+        s1_triggered = 1 if s1_raw == 0 else 0
+        s2_triggered = 1 if s2_raw == 0 else 0
+    else:
+        s1_triggered = s1_raw
+        s2_triggered = s2_raw
+
+    return {
+        "sensor1": {"pin": sensor1_pin, "raw": s1_raw, "triggered": s1_triggered},
+        "sensor2": {"pin": sensor2_pin, "raw": s2_raw, "triggered": s2_triggered},
+    }
+
 def get_move_count():
     try:
         with open(COUNTER_FILE, "r") as f:
@@ -488,6 +520,15 @@ def settings():
                 config["card_servo"]["open_degrees"] = int(open_val)
             if close_val != "":
                 config["card_servo"]["close_degrees"] = int(close_val)
+            if "feed" not in config or not isinstance(config["feed"], dict):
+                config["feed"] = {}
+            motor2_extra = request.form.get("motor2_extra_feed_sec", "").strip()
+            if motor2_extra != "":
+                try:
+                    config["feed"]["motor2_extra_feed_sec"] = float(motor2_extra)
+                except ValueError:
+                    error = "Motor 2 Extra Feed Time must be a number (example: 1.2)."
+                    return render_template("settings.html", config=config, error=error)
             if write_config(config):
                 return redirect(url_for("index"))
             else:
@@ -588,6 +629,15 @@ def run_script():
         return output.decode()
     except subprocess.CalledProcessError as e:
         return f"Script failed:\n{e.output.decode()}", 500
+
+@app.route("/sensor_status", methods=["GET"])
+def sensor_status():
+    return jsonify(read_sensor_status())
+
+@app.route("/sensors", methods=["GET"])
+def sensors_page():
+    return render_template("sensors.html")
+
 
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0')

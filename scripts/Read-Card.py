@@ -9,6 +9,7 @@ import boto3
 import requests
 import base64
 import shutil  # Added for copying files
+import sys
 
 # Base directory of the script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -226,40 +227,58 @@ def detect_text_combined(image_path, crop1_height, aws_config):
     return card_name, collector_number, set_code
 
 def fetch_card_info(card_name, set_code, collector_number):
+    scryfall_attempts = []
+
+    def record_attempt(stage, url, status_code=None, details=None, error=None):
+        scryfall_attempts.append({
+            "stage": stage,
+            "url": url,
+            "status_code": status_code,
+            "details": details,
+            "error": error
+        })
+
     # Normalize inputs
     set_code_clean = clean_set_code(set_code)
     collector_number_clean = clean_collector_number(collector_number)
 
     # 1) Best match: exact by set + collector number
-    if set_code_clean and set_code_clean != "unknown" and collector_number_clean != "Unknown":
+    if set_code_clean and set_code_clean != "Unknown" and collector_number_clean != "Unknown":
         exact_url = f"https://api.scryfall.com/cards/{set_code_clean}/{collector_number_clean}"
         #print(
         #    f"[SCRYFALL EXACT] name='{card_name}', set='{set_code_clean}', "
         #    f"collector='{collector_number_clean}', url={exact_url}"
         #)
 
-        r = requests.get(exact_url)
-        if r.status_code == 200:
-            data = r.json()
-            return {
-                "name": data.get("name", "Unknown"),
-                "type": data.get("type_line", "Type not found"),
-                "colors": data.get("colors", []),
-                "cmc": data.get("cmc", "CMC not found"),
-                "set_symbol": data.get("set", "Set not found"),
-                "collector_number": data.get("collector_number", collector_number_clean),
-                "card_identified_url": data.get("image_uris", {}).get("normal", "")
-            }
-        else:
+        try:
+            r = requests.get(exact_url, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                record_attempt("exact", exact_url, status_code=r.status_code, details="ok")
+                return {
+                    "name": data.get("name", "Unknown"),
+                    "type": data.get("type_line", "Type not found"),
+                    "colors": data.get("colors", []),
+                    "color_identity": data.get("color_identity", data.get("colors", [])),
+                    "cmc": data.get("cmc", "CMC not found"),
+                    "set_symbol": data.get("set", "Set not found"),
+                    "collector_number": data.get("collector_number", collector_number_clean),
+                    "card_identified_url": data.get("image_uris", {}).get("normal", "")
+                }, scryfall_attempts
+
             # If exact lookup fails (bad set/collector), fall through to fuzzy
             try:
                 err = r.json()
-                print(f"[SCRYFALL EXACT FAILED] status={r.status_code} details={err.get('details', '')}")
+                record_attempt("exact", exact_url, status_code=r.status_code, details=err.get("details", ""))
+                print(f"[SCRYFALL EXACT FAILED] status={r.status_code} details={err.get('details', '')}", file=sys.stderr)
             except Exception:
-                print(f"[SCRYFALL EXACT FAILED] status={r.status_code}")
+                record_attempt("exact", exact_url, status_code=r.status_code, details="non-json error body")
+                print(f"[SCRYFALL EXACT FAILED] status={r.status_code}", file=sys.stderr)
+        except requests.RequestException as e:
+            record_attempt("exact", exact_url, error=str(e))
 
     # 2) Fallback: fuzzy by name (optionally constrain by set)
-    if set_code_clean and set_code_clean != "unknown":
+    if set_code_clean and set_code_clean != "Unknown":
         url = f"https://api.scryfall.com/cards/named?fuzzy={card_name}&set={set_code_clean}"
     else:
         url = f"https://api.scryfall.com/cards/named?fuzzy={card_name}"
@@ -269,37 +288,57 @@ def fetch_card_info(card_name, set_code, collector_number):
     #    f"collector='{collector_number_clean}', url={url}"
     #)
 
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        return {
-            "name": data.get("name", "Unknown"),
-            "type": data.get("type_line", "Type not found"),
-            "colors": data.get("colors", []),
-            "cmc": data.get("cmc", "CMC not found"),
-            "set_symbol": data.get("set", "Set not found"),
-            "collector_number": data.get("collector_number", "Unknown"),
-            "card_identified_url": data.get("image_uris", {}).get("normal", "")
-        }
+    try:
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, status_code=response.status_code, details="ok")
+            return {
+                "name": data.get("name", "Unknown"),
+                "type": data.get("type_line", "Type not found"),
+                "colors": data.get("colors", []),
+                "color_identity": data.get("color_identity", data.get("colors", [])),
+                "cmc": data.get("cmc", "CMC not found"),
+                "set_symbol": data.get("set", "Set not found"),
+                "collector_number": data.get("collector_number", "Unknown"),
+                "card_identified_url": data.get("image_uris", {}).get("normal", "")
+            }, scryfall_attempts
+        try:
+            err = response.json()
+            record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, status_code=response.status_code, details=err.get("details", ""))
+        except Exception:
+            record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, status_code=response.status_code, details="non-json error body")
+    except requests.RequestException as e:
+        record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, error=str(e))
 
     # 3) Last fallback: fuzzy without set constraint (if set-constrained fuzzy failed)
     fallback_url = f"https://api.scryfall.com/cards/named?fuzzy={card_name}"
     if fallback_url != url:
         #print(f"[SCRYFALL FUZZY FALLBACK] url={fallback_url}")
-        fallback_response = requests.get(fallback_url)
-        if fallback_response.status_code == 200:
-            data = fallback_response.json()
-            return {
-                "name": data.get("name", "Unknown"),
-                "type": data.get("type_line", "Type not found"),
-                "colors": data.get("colors", []),
-                "cmc": data.get("cmc", "CMC not found"),
-                "set_symbol": data.get("set", "Set not found"),
-                "collector_number": data.get("collector_number", "Unknown"),
-                "card_identified_url": data.get("image_uris", {}).get("normal", "")
-            }
+        try:
+            fallback_response = requests.get(fallback_url, timeout=15)
+            if fallback_response.status_code == 200:
+                data = fallback_response.json()
+                record_attempt("fuzzy_fallback", fallback_url, status_code=fallback_response.status_code, details="ok")
+                return {
+                    "name": data.get("name", "Unknown"),
+                    "type": data.get("type_line", "Type not found"),
+                    "colors": data.get("colors", []),
+                    "color_identity": data.get("color_identity", data.get("colors", [])),
+                    "cmc": data.get("cmc", "CMC not found"),
+                    "set_symbol": data.get("set", "Set not found"),
+                    "collector_number": data.get("collector_number", "Unknown"),
+                    "card_identified_url": data.get("image_uris", {}).get("normal", "")
+                }, scryfall_attempts
+            try:
+                err = fallback_response.json()
+                record_attempt("fuzzy_fallback", fallback_url, status_code=fallback_response.status_code, details=err.get("details", ""))
+            except Exception:
+                record_attempt("fuzzy_fallback", fallback_url, status_code=fallback_response.status_code, details="non-json error body")
+        except requests.RequestException as e:
+            record_attempt("fuzzy_fallback", fallback_url, error=str(e))
 
-    return None
+    return None, scryfall_attempts
 
 
 def cleanup_images(*file_paths):
@@ -402,8 +441,6 @@ def main():
     """
     try:
         config = load_config(CONFIG_PATH)
-
-        config = load_config(CONFIG_PATH)
         processed_image = capture_image(config)
 
         # Create a permanent copy called "card_scanned.png" in the same directory.
@@ -417,15 +454,23 @@ def main():
         print(json.dumps({"error": f"Image capture/process error: {str(e)}"}))
         return
 
-    card_info = fetch_card_info(card_name, set_code, collector_number)
+    card_info, scryfall_attempts = fetch_card_info(card_name, set_code, collector_number)
     if card_info:
         print(json.dumps(card_info))
     else:
         provider = (config.get("recognition_provider") or "aws")
-        print(json.dumps({"error": "...", "provider": provider}))
+        print(json.dumps({
+            "error": "Unable to identify card from recognition + Scryfall query",
+            "provider": provider,
+            "recognition": {
+                "card_name": card_name,
+                "set_code": set_code,
+                "collector_number": collector_number
+            },
+            "scryfall_responses": scryfall_attempts
+        }))
 
     cleanup_images(processed_image)
 
 if __name__ == "__main__":
     main()
-

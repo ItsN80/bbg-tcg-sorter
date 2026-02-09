@@ -35,6 +35,25 @@
             margin-bottom: 5px;
             text-align: center;
         }
+        .details {
+            flex: 1;
+            min-width: 320px;
+        }
+        pre {
+            background: #f3f4f6;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 10px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .timestamp {
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
@@ -48,15 +67,45 @@
     </a>
 </div>
 
-    {% for timestamp in timestamps %}
+    {% for entry in entries %}
     <div class="failed-pair">
-        <div>
-            <div class="label">Scanned</div>
-            <img src="{{ url_for('static', filename='images/failed/' ~ 'failed_' ~ timestamp ~ '.png') }}" alt="Scanned Image">
+        <div class="details">
+            <div class="timestamp">Failed Read: {{ entry.timestamp }}</div>
+            {% if entry.details %}
+                <div class="label" style="text-align: left;">Recognition Response</div>
+                <pre>{{ entry.details.get("recognition_response", {}) | tojson(indent=2) }}</pre>
+
+                <div class="label" style="text-align: left;">Scryfall Responses</div>
+                <pre>{{ entry.details.get("scryfall_responses", []) | tojson(indent=2) }}</pre>
+
+                {% if entry.details.get("error") %}
+                <div class="label" style="text-align: left;">Error</div>
+                <pre>{{ entry.details.get("error") }}</pre>
+                {% endif %}
+
+                {% if entry.details.get("raw_read_stdout") %}
+                <div class="label" style="text-align: left;">Read-Card Stdout</div>
+                <pre>{{ entry.details.get("raw_read_stdout") }}</pre>
+                {% endif %}
+
+                {% if entry.details.get("raw_read_stderr") %}
+                <div class="label" style="text-align: left;">Read-Card Stderr</div>
+                <pre>{{ entry.details.get("raw_read_stderr") }}</pre>
+                {% endif %}
+            {% else %}
+                <div class="label" style="text-align: left;">Details</div>
+                <pre>No failed-read details were saved for this entry.</pre>
+            {% endif %}
         </div>
         <div>
-            <div class="label">Combined Crop</div>
-            <img src="{{ url_for('static', filename='images/failed/' ~ timestamp ~ '_combined_crop.jpg') }}" alt="Combined Crop Image">
+            {% if entry.has_scanned %}
+            <div class="label">Scanned</div>
+            <img src="{{ url_for('static', filename='images/failed/' ~ 'failed_' ~ entry.timestamp ~ '.png') }}" alt="Scanned Image">
+            {% endif %}
+            {% if entry.has_crop %}
+            <div class="label" style="margin-top: 12px;">Combined Crop</div>
+            <img src="{{ url_for('static', filename='images/failed/' ~ entry.timestamp ~ '_combined_crop.jpg') }}" alt="Combined Crop Image">
+            {% endif %}
         </div>
     </div>
     {% endfor %}

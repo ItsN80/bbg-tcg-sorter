@@ -5,6 +5,7 @@ import time
 import sys
 import os
 import json
+import subprocess
 
 # -----------------------------
 # Pin Definitions (BCM)
@@ -91,6 +92,7 @@ pi.set_pull_up_down(sensor2_pin, pigpio.PUD_DOWN)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.normpath(os.path.join(BASE_DIR, "..", "storage", "config.json"))
+JAM_CAPTURE_SCRIPT = os.path.join(BASE_DIR, "Test-Camera.py")
 
 def read_config_value_motor2_extra_feed(default=1.2):
     try:
@@ -101,6 +103,28 @@ def read_config_value_motor2_extra_feed(default=1.2):
         return default
 
 MOTOR2_EXTRA_FEED_SEC = read_config_value_motor2_extra_feed()
+
+def capture_jam_snapshot(context):
+    """
+    Capture a camera image on feed failures so the UI can show the jam state.
+    """
+    try:
+        result = subprocess.run(
+            ["python3", JAM_CAPTURE_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=20
+        )
+        if result.returncode == 0:
+            print(f"Jam snapshot captured ({context}).")
+        else:
+            print(
+                f"Jam snapshot capture failed ({context}). "
+                f"code={result.returncode} stderr={(result.stderr or '').strip()}",
+                file=sys.stderr
+            )
+    except Exception as e:
+        print(f"Jam snapshot capture exception ({context}): {e}", file=sys.stderr)
 
 
 # -----------------------------
@@ -188,6 +212,7 @@ try:
         stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
         stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
         stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
+        capture_jam_snapshot("sensor1_block_timeout")
         pi.stop()
         print("1")
         sys.exit(1)
@@ -241,6 +266,7 @@ try:
         stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
         stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
         stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
+        capture_jam_snapshot("sensor1_clear_timeout")
         pi.stop()
         print("1")
         sys.exit(1)
@@ -255,6 +281,7 @@ try:
     if not ok:
         print("Timeout: Sensor 2 did not go BLOCKED in time")
         stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
+        capture_jam_snapshot("sensor2_block_timeout")
         pi.stop()
         print("1")
         sys.exit(1)

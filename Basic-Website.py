@@ -193,7 +193,8 @@ def matches_criteria(card, criteria):
 
     if criteria.get("colors"):
         crit_colors = set(criteria["colors"])
-        card_colors = set(card.get("colors", []))
+        # Match by color identity first, then fallback to colors for older payloads.
+        card_colors = set(card.get("color_identity", card.get("colors", [])))
         if crit_colors == {"C"}:
             if card_colors:
                 return False
@@ -229,6 +230,48 @@ def update_images(card):
     
     # Optionally, you could download the image from card_identified_url as well,
     # but in this revision we assume the front-end uses card_identified_url.
+
+def save_failed_read_details(timestamp, card, read_stdout="", read_stderr=""):
+    details = {
+        "timestamp": timestamp,
+        "error": card.get("error", "Unknown read error"),
+        "provider": card.get("provider", ""),
+        "recognition_response": card.get("recognition", {}),
+        "scryfall_responses": card.get("scryfall_responses", []),
+        "raw_read_stdout": read_stdout,
+        "raw_read_stderr": read_stderr
+    }
+    details_path = os.path.join(FAILED_IMAGE_DEST, f"failed_{timestamp}.json")
+    try:
+        with open(details_path, "w", encoding="utf-8") as f:
+            json.dump(details, f, indent=2)
+    except Exception as e:
+        print(f"Failed to save failed read details: {e}")
+
+def parse_card_output(stdout_text):
+    """
+    Parse card JSON from subprocess stdout.
+    Accepts either pure JSON or noisy logs where the last JSON line is the payload.
+    """
+    text = (stdout_text or "").strip()
+    if not text:
+        raise json.JSONDecodeError("Empty output", "", 0)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+    raise json.JSONDecodeError("No JSON object found in output", text, 0)
 
 def send_shutdown_summary_email(config):
             if not config.get("smtp", {}).get("enabled"):
@@ -272,16 +315,31 @@ def sorting_loop():
                     break
             
             # Read the card info.
-            result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Read-Card.py")],capture_output=True, text=True, check=True)
-            try:
-                card = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                print("Error decoding card info. Using tray 10 as failover.")
-                card = {"error": "Decoding error"}
-                failed_read_count += 1
-                save_failed_read_count(failed_read_count)
+            result = subprocess.run(
+                ["python3", os.path.join(BASE_DIR, "scripts", "Read-Card.py")],
+                capture_output=True,
+                text=True
+            )
+            read_stdout = (result.stdout or "").strip()
+            read_stderr = (result.stderr or "").strip()
 
-            
+            if result.returncode != 0:
+                print(f"Read-Card.py failed with return code {result.returncode}.")
+                card = {
+                    "error": f"Read-Card.py exited with code {result.returncode}",
+                    "raw_stderr": read_stderr
+                }
+            else:
+                try:
+                    card = parse_card_output(read_stdout)
+                except json.JSONDecodeError:
+                    print("Error decoding card info. Using tray 10 as failover.")
+                    card = {
+                        "error": "Decoding error from Read-Card.py output",
+                        "raw_stdout": read_stdout
+                    }
+
+             
             if "error" in card:
                 print(f"Error in card info: {card['error']}. Using tray 10 as failover.")
                 selected_box = 10
@@ -290,6 +348,7 @@ def sorting_loop():
 
                 # Save Failed Card Image
                 timestamp = time.strftime("%Y%m%d-%H%M%S")
+                save_failed_read_details(timestamp, card, read_stdout=read_stdout, read_stderr=read_stderr)
                 failed_image_name = f"failed_{timestamp}.png"
                 failed_image_path = os.path.join(FAILED_IMAGE_DEST, failed_image_name)
                 try:
@@ -552,19 +611,37 @@ def update_program():
 def failed_gallery():
     try:
         files = os.listdir(FAILED_IMAGE_DEST)
-        timestamps = set()
+        entries_by_ts = {}
 
-        for file in files:
-            if file.startswith("failed_") and file.endswith(".png"):
-                ts = file.replace("failed_", "").replace(".png", "")
-                timestamps.add(ts)
-        
-        timestamps = sorted(timestamps, reverse=True)
+        for filename in files:
+            if not filename.startswith("failed_"):
+                continue
+
+            if filename.endswith(".png"):
+                ts = filename.replace("failed_", "").replace(".png", "")
+                entries_by_ts.setdefault(ts, {"timestamp": ts, "has_scanned": False, "has_crop": False, "details": {}})
+                entries_by_ts[ts]["has_scanned"] = True
+            elif filename.endswith(".json"):
+                ts = filename.replace("failed_", "").replace(".json", "")
+                entries_by_ts.setdefault(ts, {"timestamp": ts, "has_scanned": False, "has_crop": False, "details": {}})
+                details_path = os.path.join(FAILED_IMAGE_DEST, filename)
+                try:
+                    with open(details_path, "r", encoding="utf-8") as f:
+                        entries_by_ts[ts]["details"] = json.load(f)
+                except Exception as e:
+                    entries_by_ts[ts]["details"] = {"error": f"Failed to read details file: {e}"}
+
+        for ts, entry in entries_by_ts.items():
+            combined_crop_name = f"{ts}_combined_crop.jpg"
+            combined_crop_path = os.path.join(FAILED_IMAGE_DEST, combined_crop_name)
+            entry["has_crop"] = os.path.exists(combined_crop_path)
+
+        entries = sorted(entries_by_ts.values(), key=lambda x: x["timestamp"], reverse=True)
     except Exception as e:
         print(f"Error loading failed images: {e}")
-        timestamps = []
+        entries = []
 
-    return render_template("failed.html", timestamps=timestamps)
+    return render_template("failed.html", entries=entries)
 
 @app.route("/camera_test", methods=["GET", "POST"])
 def camera_test():

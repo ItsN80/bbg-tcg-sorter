@@ -10,3 +10,4 @@ static/images/failed/*
 storage/combined_crop.jpg
 static/images/combined_crop.jpg
 storage/failed_reads.jsonl
+scripts/_pycache_/*

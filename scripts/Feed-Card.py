@@ -28,7 +28,8 @@ MOTOR2_STOP_SETTLE_SEC = 0.05  # small pause after stopping motor 2 (optional)
 
 SENSOR1_BLOCK_TIMEOUT_SEC = 8.0
 SENSOR1_CLEAR_TIMEOUT_SEC = 5.0
-SENSOR2_BLOCK_TIMEOUT_SEC = 10.0
+SENSOR2_BLOCK_TIMEOUT_SEC = 6.0
+FEED_CYCLE_MAX_ATTEMPTS = 3
 
 STABLE_TIME_MS = 40
 
@@ -177,130 +178,123 @@ def wait_for_level_stable(pin, target_level, timeout_sec, stable_ms=40, poll_ms=
 # -----------------------------
 # Main flow
 # -----------------------------
-motor1_thread = motor2_thread = motor3_thread = None
-motor1_stop = threading.Event()
-motor2_stop = threading.Event()
-motor3_stop = threading.Event()
+def run_feed_cycle(attempt_num):
+    motor1_thread = motor2_thread = motor3_thread = None
+    motor1_stop = threading.Event()
+    motor2_stop = threading.Event()
+    motor3_stop = threading.Event()
+    try:
+        print(f"Starting motors 1, 2, 3 (Phase 1 feed) [attempt {attempt_num}/{FEED_CYCLE_MAX_ATTEMPTS}]")
+        motor1_thread = threading.Thread(
+            target=motor_step_sequence,
+            args=(MOTOR_1_PINS, STEPPER_SEQ_FULLSPEED, motor1_stop, MOTOR1_FWD_DELAY, False),
+            daemon=True
+        )
+        # Phase 1: Motor 2 inverted (mounted opposite)
+        motor2_thread = threading.Thread(
+            target=motor_step_sequence,
+            args=(MOTOR_2_PINS, STEPPER_SEQ_HALFSPEED, motor2_stop, MOTOR2_FWD_DELAY, True),
+            daemon=True
+        )
+        motor3_thread = threading.Thread(
+            target=motor_step_sequence,
+            args=(MOTOR_3_PINS, STEPPER_SEQ_FULLSPEED, motor3_stop, MOTOR3_FWD_DELAY, False),
+            daemon=True
+        )
+
+        motor1_thread.start()
+        motor2_thread.start()
+        motor3_thread.start()
+
+        print("Waiting for Sensor 1 BLOCKED (high)...")
+        ok = wait_for_level_stable(sensor1_pin, SENSOR_BLOCKED_LEVEL, SENSOR1_BLOCK_TIMEOUT_SEC, stable_ms=STABLE_TIME_MS)
+        if not ok:
+            print("Timeout: Sensor 1 did not go BLOCKED in time")
+            capture_jam_snapshot(f"sensor1_block_timeout_attempt_{attempt_num}")
+            return False
+
+        print("Sensor 1 BLOCKED (front edge detected)")
+
+        # Stop Motor 1 promptly so it doesn't continue pulling a second card
+        print("Stopping Motor 1 (immediately after sensor1 triggers)")
+        stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
+
+        # Keep Motor 2 running in its CURRENT (Phase 1) direction for 1.2 seconds
+        # to push more of the card through before we stop & reverse for anti-double-feed
+        print(f"Keeping Motor 2 running for {MOTOR2_EXTRA_FEED_SEC:.1f}s after sensor1 triggers")
+        time.sleep(MOTOR2_EXTRA_FEED_SEC)
+
+        print("Stopping Motor 2 (after extra feed time)")
+        stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
+
+        # Phase 2: reverse to prevent double-feed until sensor1 clears
+        print("Starting Phase 2 anti-double-feed (motors 1 & 2 reverse until sensor1 clears)")
+        motor1_stop.clear()
+        motor2_stop.clear()
+
+        motor1_thread = threading.Thread(
+            target=motor_step_sequence,
+            args=(MOTOR_1_PINS, STEPPER_SEQ_HALFSPEED, motor1_stop, MOTOR1_REV_DELAY, True),
+            daemon=True
+        )
+        # Phase 2: motor2 must FLIP direction vs Phase 1 (so reverse=False here)
+        motor2_thread = threading.Thread(
+            target=motor_step_sequence,
+            args=(MOTOR_2_PINS, STEPPER_SEQ_HALFSPEED, motor2_stop, MOTOR2_REV_DELAY, False),
+            daemon=True
+        )
+
+        motor1_thread.start()
+        motor2_thread.start()
+
+        print("Waiting for Sensor 1 CLEAR (low)...")
+        ok = wait_for_level_stable(
+            sensor1_pin,
+            0 if SENSOR_BLOCKED_LEVEL == 1 else 1,
+            SENSOR1_CLEAR_TIMEOUT_SEC,
+            stable_ms=STABLE_TIME_MS
+        )
+        if not ok:
+            print("Timeout: Sensor 1 did not CLEAR in time")
+            capture_jam_snapshot(f"sensor1_clear_timeout_attempt_{attempt_num}")
+            return False
+
+        print("Sensor 1 CLEAR - stopping motors 1 & 2")
+        stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
+        stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
+
+        # Motor 3 continues until sensor2 trips
+        print("Waiting for Sensor 2 BLOCKED (high)...")
+        ok = wait_for_level_stable(sensor2_pin, SENSOR_BLOCKED_LEVEL, SENSOR2_BLOCK_TIMEOUT_SEC, stable_ms=STABLE_TIME_MS)
+        if not ok:
+            print("Timeout: Sensor 2 did not go BLOCKED in time")
+            capture_jam_snapshot(f"sensor2_block_timeout_attempt_{attempt_num}")
+            return False
+
+        print("Sensor 2 BLOCKED - stopping Motor 3")
+        stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
+        return True
+    finally:
+        stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
+        stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
+        stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
+
 
 try:
-    print("Starting motors 1, 2, 3 (Phase 1 feed)")
-    motor1_thread = threading.Thread(
-        target=motor_step_sequence,
-        args=(MOTOR_1_PINS, STEPPER_SEQ_FULLSPEED, motor1_stop, MOTOR1_FWD_DELAY, False),
-        daemon=True
-    )
-    # Phase 1: Motor 2 inverted (mounted opposite)
-    motor2_thread = threading.Thread(
-        target=motor_step_sequence,
-        args=(MOTOR_2_PINS, STEPPER_SEQ_HALFSPEED, motor2_stop, MOTOR2_FWD_DELAY, True),
-        daemon=True
-    )
-    motor3_thread = threading.Thread(
-        target=motor_step_sequence,
-        args=(MOTOR_3_PINS, STEPPER_SEQ_FULLSPEED, motor3_stop, MOTOR3_FWD_DELAY, False),
-        daemon=True
-    )
-
-    motor1_thread.start()
-    motor2_thread.start()
-    motor3_thread.start()
-
-    print("Waiting for Sensor 1 BLOCKED (high)...")
-    ok = wait_for_level_stable(sensor1_pin, SENSOR_BLOCKED_LEVEL, SENSOR1_BLOCK_TIMEOUT_SEC, stable_ms=STABLE_TIME_MS)
-    if not ok:
-        print("Timeout: Sensor 1 did not go BLOCKED in time")
-        stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
-        stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
-        stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
-        capture_jam_snapshot("sensor1_block_timeout")
-        pi.stop()
-        print("1")
-        sys.exit(1)
-
-    print("Sensor 1 BLOCKED (front edge detected)")
-
-    # Stop Motor 1 promptly so it doesn't continue pulling a second card
-    print("Stopping Motor 1 (immediately after sensor1 triggers)")
-    stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
-
-    # Keep Motor 2 running in its CURRENT (Phase 1) direction for 1.2 seconds
-    # to push more of the card through before we stop & reverse for anti-double-feed
-    print(f"Keeping Motor 2 running for {MOTOR2_EXTRA_FEED_SEC:.1f}s after sensor1 triggers")
-    time.sleep(MOTOR2_EXTRA_FEED_SEC)
-
-    print("Stopping Motor 2 (after extra feed time)")
-    stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
-
-    # Now proceed to Phase 2 (reverse) as before...
-
-
-    # Phase 2: reverse to prevent double-feed until sensor1 clears
-    print("Starting Phase 2 anti-double-feed (motors 1 & 2 reverse until sensor1 clears)")
-    motor1_stop.clear()
-    motor2_stop.clear()
-
-    motor1_thread = threading.Thread(
-        target=motor_step_sequence,
-        args=(MOTOR_1_PINS, STEPPER_SEQ_HALFSPEED, motor1_stop, MOTOR1_REV_DELAY, True),
-        daemon=True
-    )
-    # Phase 2: motor2 must FLIP direction vs Phase 1 (so reverse=False here)
-    motor2_thread = threading.Thread(
-        target=motor_step_sequence,
-        args=(MOTOR_2_PINS, STEPPER_SEQ_HALFSPEED, motor2_stop, MOTOR2_REV_DELAY, False),
-        daemon=True
-    )
-
-    motor1_thread.start()
-    motor2_thread.start()
-
-    print("Waiting for Sensor 1 CLEAR (low)...")
-    ok = wait_for_level_stable(
-        sensor1_pin,
-        0 if SENSOR_BLOCKED_LEVEL == 1 else 1,
-        SENSOR1_CLEAR_TIMEOUT_SEC,
-        stable_ms=STABLE_TIME_MS
-    )
-    if not ok:
-        print("Timeout: Sensor 1 did not CLEAR in time")
-        stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
-        stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
-        stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
-        capture_jam_snapshot("sensor1_clear_timeout")
-        pi.stop()
-        print("1")
-        sys.exit(1)
-
-    print("Sensor 1 CLEAR - stopping motors 1 & 2")
-    stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
-    stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
-
-    # Motor 3 continues until sensor2 trips
-    print("Waiting for Sensor 2 BLOCKED (high)...")
-    ok = wait_for_level_stable(sensor2_pin, SENSOR_BLOCKED_LEVEL, SENSOR2_BLOCK_TIMEOUT_SEC, stable_ms=STABLE_TIME_MS)
-    if not ok:
-        print("Timeout: Sensor 2 did not go BLOCKED in time")
-        stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
-        capture_jam_snapshot("sensor2_block_timeout")
-        pi.stop()
-        print("1")
-        sys.exit(1)
-
-    print("Sensor 2 BLOCKED - stopping Motor 3")
-    stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
+    success = False
+    for attempt in range(1, FEED_CYCLE_MAX_ATTEMPTS + 1):
+        if run_feed_cycle(attempt):
+            success = True
+            break
+        if attempt < FEED_CYCLE_MAX_ATTEMPTS:
+            print(f"Feed cycle failed on attempt {attempt}. Retrying...")
 
     pi.stop()
-    print("0")
-    sys.exit(0)
+    print("0" if success else "1")
+    sys.exit(0 if success else 1)
 
 except KeyboardInterrupt:
     print("Stopping motors due to KeyboardInterrupt...")
-    try:
-        stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
-        stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
-        stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
-    except Exception:
-        pass
     pi.stop()
     print("1")
     sys.exit(1)

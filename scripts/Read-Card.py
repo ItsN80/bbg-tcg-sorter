@@ -33,6 +33,21 @@ def load_config(config_file):
     with open(config_file, "r") as file:
         return json.load(file)
 
+def parse_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in {"1", "true", "yes", "y", "on"}:
+            return True
+        if v in {"0", "false", "no", "n", "off"}:
+            return False
+    return default
+
 # Set up the camera
 camera = Picamera2()
 
@@ -93,7 +108,36 @@ def clean_set_code(raw: str) -> str:
     if len(token) > 5:
         token = token[:5]
 
+    # Reject all-digit tokens (common OCR/LLM artifact like "304")
+    if not re.search(r"[A-Z]", token):
+        return "Unknown"
+
     return token
+
+def looks_like_type_line(name: str) -> bool:
+    """
+    Heuristic filter for cases where the model reads the type line
+    (e.g. "Creature - Human Wizard") instead of card name.
+    """
+    if not name:
+        return False
+
+    n = name.strip().lower()
+    type_words = {
+        "artifact", "battle", "conspiracy", "creature", "dungeon",
+        "emblem", "enchantment", "instant", "kindred", "land",
+        "phenomenon", "plane", "planeswalker", "scheme", "sorcery",
+        "tribal", "vanguard"
+    }
+
+    # Typical MTG type-line separators
+    if " - " in n or " — " in n:
+        first = re.split(r"\s[-—]\s", n, maxsplit=1)[0].strip()
+        if first in type_words:
+            return True
+
+    # Also reject direct single-type outputs like "Creature"
+    return n in type_words
 
 def image_to_base64(image_path: str) -> str:
     with open(image_path, "rb") as f:
@@ -359,16 +403,30 @@ def recognize_with_ollama(processed_image, config):
     base_url = (ollama_cfg.get("base_url") or "http://localhost:11434").rstrip("/")
     model = ollama_cfg.get("model") or "minicpm-v:latest"
     timeout = int(ollama_cfg.get("timeout_seconds") or 60)
+    min_confidence = float(ollama_cfg.get("min_confidence") or 0.80)
+    require_set_and_collector = parse_bool(
+        ollama_cfg.get("require_set_and_collector"),
+        default=False
+    )
+    env_require_set = os.environ.get("REQUIRE_SET_AND_COLLECTOR")
+    if env_require_set is not None:
+        require_set_and_collector = parse_bool(
+            env_require_set,
+            default=require_set_and_collector
+        )
 
     # Encode image
     img_b64 = image_to_base64(processed_image)
 
-    # Prompt: keep it strict and MTG-specific
+    # Prompt: strict JSON and conservative fail behavior
     prompt = (
         "You are identifying a Magic: The Gathering card from an image.\n"
         "Return ONLY valid JSON with these keys:\n"
-        "card_name (string), set_code (string or null), collector_number (string or null).\n"
-        "If you are not confident, still provide best-guess card_name.\n"
+        "card_name (string or null), set_code (string or null), "
+        "collector_number (string or null), confidence (number 0.0 to 1.0).\n"
+        "card_name must be the printed card title, not the type line.\n"
+        "If text is unclear or confidence is low, return null values.\n"
+        "Do NOT guess.\n"
         "Do not include any extra text.\n"
     )
 
@@ -377,7 +435,15 @@ def recognize_with_ollama(processed_image, config):
         "prompt": prompt,
         "images": [img_b64],
         "stream": False,
-        "format": "json"
+        "format": "json",
+        "options": {
+            "temperature": float(ollama_cfg.get("temperature", 0.0)),
+            "top_p": float(ollama_cfg.get("top_p", 0.1)),
+            "top_k": int(ollama_cfg.get("top_k", 20)),
+            "repeat_penalty": float(ollama_cfg.get("repeat_penalty", 1.2)),
+            "num_predict": int(ollama_cfg.get("num_predict", 120)),
+            "seed": int(ollama_cfg.get("seed", 42))
+        }
     }
 
     try:
@@ -392,9 +458,20 @@ def recognize_with_ollama(processed_image, config):
 
         parsed = json.loads(response_text)
 
-        card_name = (parsed.get("card_name") or "Unknown").strip()
-        set_code = (parsed.get("set_code") or "Unknown")
-        collector_number = (parsed.get("collector_number") or "Unknown")
+        confidence = parsed.get("confidence", 0.0)
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+        card_name_raw = parsed.get("card_name")
+        if isinstance(card_name_raw, str):
+            card_name = card_name_raw.strip() or "Unknown"
+        else:
+            card_name = "Unknown"
+
+        set_code = parsed.get("set_code") or "Unknown"
+        collector_number = parsed.get("collector_number") or "Unknown"
 
         if isinstance(collector_number, str):
             collector_number = collector_number.strip() or "Unknown"
@@ -414,6 +491,19 @@ def recognize_with_ollama(processed_image, config):
             collector_number = collector_number.strip() or "Unknown"
         else:
             collector_number = "Unknown"
+
+        # Conservative fail policy: prefer explicit failure over likely bad matches.
+        if confidence < min_confidence:
+            return "Unknown", "Unknown", "Unknown"
+
+        if not card_name or card_name.lower() in {"unknown", "null", "none", "n/a"}:
+            return "Unknown", "Unknown", "Unknown"
+
+        if looks_like_type_line(card_name):
+            return "Unknown", "Unknown", "Unknown"
+
+        if require_set_and_collector and (set_code == "Unknown" or collector_number == "Unknown"):
+            return "Unknown", "Unknown", "Unknown"
 
         return card_name, collector_number, set_code
         

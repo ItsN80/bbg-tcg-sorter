@@ -204,6 +204,11 @@ def matches_criteria(card, criteria):
 
     return True
 
+def any_box_has_set_symbol():
+    with lock:
+        criteria_snapshot = list(box_criteria.values())
+    return any(str((crit or {}).get("set_symbol", "")).strip() for crit in criteria_snapshot)
+
 def append_card_to_csv(card):
     # Use card keys as field names.
     fieldnames = list(card.keys())
@@ -315,10 +320,13 @@ def sorting_loop():
                     break
             
             # Read the card info.
+            read_env = os.environ.copy()
+            read_env["REQUIRE_SET_AND_COLLECTOR"] = "1" if any_box_has_set_symbol() else "0"
             result = subprocess.run(
                 ["python3", os.path.join(BASE_DIR, "scripts", "Read-Card.py")],
                 capture_output=True,
-                text=True
+                text=True,
+                env=read_env
             )
             read_stdout = (result.stdout or "").strip()
             read_stderr = (result.stderr or "").strip()

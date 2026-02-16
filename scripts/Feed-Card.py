@@ -94,6 +94,8 @@ pi.set_pull_up_down(sensor2_pin, pigpio.PUD_DOWN)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.normpath(os.path.join(BASE_DIR, "..", "storage", "config.json"))
 JAM_CAPTURE_SCRIPT = os.path.join(BASE_DIR, "Test-Camera.py")
+CARD_RELEASE_SCRIPT = os.path.join(BASE_DIR, "Card-Release.py")
+CARD_CAPTURE_SCRIPT = os.path.join(BASE_DIR, "Card-Capture.py")
 
 def read_config_value_motor2_extra_feed(default=1.2):
     try:
@@ -126,6 +128,35 @@ def capture_jam_snapshot(context):
             )
     except Exception as e:
         print(f"Jam snapshot capture exception ({context}): {e}", file=sys.stderr)
+
+
+def run_script(script_path, label, timeout=60):
+    try:
+        print(f"Running {label}: {script_path}")
+        result = subprocess.run(
+            ["python3", script_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        if result.returncode != 0:
+            print(
+                f"{label} failed. code={result.returncode} stderr={(result.stderr or '').strip()}",
+                file=sys.stderr
+            )
+            return False
+        print(f"{label} completed successfully.")
+        return True
+    except Exception as e:
+        print(f"{label} exception: {e}", file=sys.stderr)
+        return False
+
+
+def run_recovery_sequence():
+    print("Feed attempts exhausted. Running recovery sequence (Card-Release, Card-Capture).")
+    release_ok = run_script(CARD_RELEASE_SCRIPT, "Card-Release.py")
+    capture_ok = run_script(CARD_CAPTURE_SCRIPT, "Card-Capture.py")
+    return release_ok and capture_ok
 
 
 # -----------------------------
@@ -281,13 +312,20 @@ def run_feed_cycle(attempt_num):
 
 
 try:
-    success = False
-    for attempt in range(1, FEED_CYCLE_MAX_ATTEMPTS + 1):
-        if run_feed_cycle(attempt):
-            success = True
-            break
-        if attempt < FEED_CYCLE_MAX_ATTEMPTS:
-            print(f"Feed cycle failed on attempt {attempt}. Retrying...")
+    def run_feed_attempt_block():
+        for attempt in range(1, FEED_CYCLE_MAX_ATTEMPTS + 1):
+            if run_feed_cycle(attempt):
+                return True
+            if attempt < FEED_CYCLE_MAX_ATTEMPTS:
+                print(f"Feed cycle failed on attempt {attempt}. Retrying...")
+        return False
+
+    success = run_feed_attempt_block()
+
+    if not success:
+        run_recovery_sequence()
+        print("Retrying feed cycle attempts after recovery sequence...")
+        success = run_feed_attempt_block()
 
     pi.stop()
     print("0" if success else "1")

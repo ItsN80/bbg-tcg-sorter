@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import time
 from datetime import datetime
 from picamera2 import Picamera2
 from PIL import Image
@@ -47,6 +48,20 @@ def parse_bool(value, default=False):
         if v in {"0", "false", "no", "n", "off"}:
             return False
     return default
+
+def debug_enabled(config):
+    """
+    Global debug toggle for step-by-step logs.
+    Priority: env DEBUG_READ_CARD, then config.debug, default False.
+    """
+    env_debug = os.environ.get("DEBUG_READ_CARD")
+    if env_debug is not None:
+        return parse_bool(env_debug, default=False)
+    return parse_bool(config.get("debug"), default=False)
+
+def debug_log(enabled, message):
+    if enabled:
+        print(f"[READ-CARD DEBUG] {message}", file=sys.stderr)
 
 # Set up the camera
 camera = Picamera2()
@@ -143,24 +158,62 @@ def image_to_base64(image_path: str) -> str:
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
+def parse_first_json_object(text: str):
+    """
+    Parse the first JSON object from a string.
+    Handles model outputs that include prose before/after JSON.
+    """
+    if not isinstance(text, str):
+        raise ValueError("Response text is not a string")
+
+    s = text.strip()
+    if not s:
+        raise ValueError("Empty response text")
+
+    decoder = json.JSONDecoder()
+
+    # Fast path: pure JSON payload.
+    try:
+        return decoder.decode(s)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: scan for the first '{' and attempt raw_decode from there.
+    for i, ch in enumerate(s):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(s[i:])
+            return obj
+        except json.JSONDecodeError:
+            continue
+
+    raise ValueError("No valid JSON object found in response")
+
 def capture_image(config):
     """Captures an image using Picamera2 and processes it."""
+    dbg = debug_enabled(config)
     raw_file = os.path.join(output_directory, "raw_image.jpg")
     processed_file = os.path.join(output_directory, get_filename())
+    debug_log(dbg, f"Starting image capture. raw_file={raw_file} processed_file={processed_file}")
 
     # Ensure the camera is initialized
     camera_info = Picamera2.global_camera_info()
     if not camera_info:
         raise RuntimeError("No cameras found!")
+    debug_log(dbg, f"Cameras detected: {len(camera_info)}")
 
     # Configure, capture, then stop the camera
     camera.configure(camera.create_preview_configuration(
         main={"format": "RGB888", "size": (1920, 1080)}))
+    debug_log(dbg, "Camera configured for 1920x1080 RGB preview capture")
     camera.start()
     camera.capture_file(raw_file)
     camera.stop()
+    debug_log(dbg, "Image captured and camera stopped")
 
     provider = (config.get("recognition_provider") or "aws").lower().strip()
+    debug_log(dbg, f"Recognition provider selected: {provider}")
 
     if provider == "ollama":
         # Keep the full captured image (no crop/rotate)
@@ -270,8 +323,10 @@ def detect_text_combined(image_path, crop1_height, aws_config):
 
     return card_name, collector_number, set_code
 
-def fetch_card_info(card_name, set_code, collector_number):
+def fetch_card_info(card_name, set_code, collector_number, dbg=False):
     scryfall_attempts = []
+    scryfall_timeout_seconds = 30
+    scryfall_max_attempts = 3
 
     def record_attempt(stage, url, status_code=None, details=None, error=None):
         scryfall_attempts.append({
@@ -282,9 +337,45 @@ def fetch_card_info(card_name, set_code, collector_number):
             "error": error
         })
 
+    def scryfall_get_with_retries(stage, url, params=None):
+        last_error = None
+        for attempt in range(1, scryfall_max_attempts + 1):
+            try:
+                debug_log(
+                    dbg,
+                    (
+                        f"Scryfall request [{stage}] attempt {attempt}/{scryfall_max_attempts}: "
+                        f"url={url} params={params}"
+                    )
+                )
+                response = requests.get(url, params=params, timeout=scryfall_timeout_seconds)
+                return response, None
+            except requests.RequestException as e:
+                last_error = str(e)
+                debug_log(
+                    dbg,
+                    (
+                        f"Scryfall request [{stage}] attempt {attempt}/{scryfall_max_attempts} failed: "
+                        f"{last_error}"
+                    )
+                )
+                if attempt < scryfall_max_attempts:
+                    sleep_seconds = attempt
+                    debug_log(dbg, f"Scryfall retry sleep: {sleep_seconds}s")
+                    time.sleep(sleep_seconds)
+        return None, last_error
+
     # Normalize inputs
     set_code_clean = clean_set_code(set_code)
     collector_number_clean = clean_collector_number(collector_number)
+    debug_log(
+        dbg,
+        (
+            "Scryfall lookup inputs: "
+            f"card_name='{card_name}', set_code_raw='{set_code}', collector_raw='{collector_number}', "
+            f"set_code_clean='{set_code_clean}', collector_clean='{collector_number_clean}'"
+        )
+    )
 
     # 1) Best match: exact by set + collector number
     if set_code_clean and set_code_clean != "Unknown" and collector_number_clean != "Unknown":
@@ -295,7 +386,12 @@ def fetch_card_info(card_name, set_code, collector_number):
         #)
 
         try:
-            r = requests.get(exact_url, timeout=15)
+            r, req_error = scryfall_get_with_retries("exact", exact_url)
+            if req_error:
+                record_attempt("exact", exact_url, error=req_error)
+                r = None
+            if r is None:
+                raise requests.RequestException(req_error or "Unknown request error")
             if r.status_code == 200:
                 data = r.json()
                 record_attempt("exact", exact_url, status_code=r.status_code, details="ok")
@@ -318,14 +414,17 @@ def fetch_card_info(card_name, set_code, collector_number):
             except Exception:
                 record_attempt("exact", exact_url, status_code=r.status_code, details="non-json error body")
                 print(f"[SCRYFALL EXACT FAILED] status={r.status_code}", file=sys.stderr)
-        except requests.RequestException as e:
-            record_attempt("exact", exact_url, error=str(e))
+        except requests.RequestException:
+            pass
 
     # 2) Fallback: fuzzy by name (optionally constrain by set)
+    fuzzy_base_url = "https://api.scryfall.com/cards/named"
     if set_code_clean and set_code_clean != "Unknown":
-        url = f"https://api.scryfall.com/cards/named?fuzzy={card_name}&set={set_code_clean}"
+        fuzzy_params = {"fuzzy": card_name, "set": set_code_clean}
+        stage = "fuzzy_set"
     else:
-        url = f"https://api.scryfall.com/cards/named?fuzzy={card_name}"
+        fuzzy_params = {"fuzzy": card_name}
+        stage = "fuzzy"
 
     #print(
     #    f"[SCRYFALL FUZZY] name='{card_name}', set='{set_code_clean or 'None'}', "
@@ -333,10 +432,15 @@ def fetch_card_info(card_name, set_code, collector_number):
     #)
 
     try:
-        response = requests.get(url, timeout=15)
+        response, req_error = scryfall_get_with_retries(stage, fuzzy_base_url, params=fuzzy_params)
+        if req_error:
+            record_attempt(stage, fuzzy_base_url, error=req_error)
+            response = None
+        if response is None:
+            raise requests.RequestException(req_error or "Unknown request error")
         if response.status_code == 200:
             data = response.json()
-            record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, status_code=response.status_code, details="ok")
+            record_attempt(stage, response.url, status_code=response.status_code, details="ok")
             return {
                 "name": data.get("name", "Unknown"),
                 "type": data.get("type_line", "Type not found"),
@@ -349,21 +453,31 @@ def fetch_card_info(card_name, set_code, collector_number):
             }, scryfall_attempts
         try:
             err = response.json()
-            record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, status_code=response.status_code, details=err.get("details", ""))
+            record_attempt(stage, response.url, status_code=response.status_code, details=err.get("details", ""))
         except Exception:
-            record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, status_code=response.status_code, details="non-json error body")
-    except requests.RequestException as e:
-        record_attempt("fuzzy_set" if "set=" in url else "fuzzy", url, error=str(e))
+            record_attempt(stage, response.url, status_code=response.status_code, details="non-json error body")
+    except requests.RequestException:
+        pass
 
     # 3) Last fallback: fuzzy without set constraint (if set-constrained fuzzy failed)
-    fallback_url = f"https://api.scryfall.com/cards/named?fuzzy={card_name}"
-    if fallback_url != url:
+    fallback_url = "https://api.scryfall.com/cards/named"
+    fallback_params = {"fuzzy": card_name}
+    if stage == "fuzzy_set":
         #print(f"[SCRYFALL FUZZY FALLBACK] url={fallback_url}")
         try:
-            fallback_response = requests.get(fallback_url, timeout=15)
+            fallback_response, req_error = scryfall_get_with_retries(
+                "fuzzy_fallback",
+                fallback_url,
+                params=fallback_params
+            )
+            if req_error:
+                record_attempt("fuzzy_fallback", fallback_url, error=req_error)
+                fallback_response = None
+            if fallback_response is None:
+                raise requests.RequestException(req_error or "Unknown request error")
             if fallback_response.status_code == 200:
                 data = fallback_response.json()
-                record_attempt("fuzzy_fallback", fallback_url, status_code=fallback_response.status_code, details="ok")
+                record_attempt("fuzzy_fallback", fallback_response.url, status_code=fallback_response.status_code, details="ok")
                 return {
                     "name": data.get("name", "Unknown"),
                     "type": data.get("type_line", "Type not found"),
@@ -376,11 +490,11 @@ def fetch_card_info(card_name, set_code, collector_number):
                 }, scryfall_attempts
             try:
                 err = fallback_response.json()
-                record_attempt("fuzzy_fallback", fallback_url, status_code=fallback_response.status_code, details=err.get("details", ""))
+                record_attempt("fuzzy_fallback", fallback_response.url, status_code=fallback_response.status_code, details=err.get("details", ""))
             except Exception:
-                record_attempt("fuzzy_fallback", fallback_url, status_code=fallback_response.status_code, details="non-json error body")
-        except requests.RequestException as e:
-            record_attempt("fuzzy_fallback", fallback_url, error=str(e))
+                record_attempt("fuzzy_fallback", fallback_response.url, status_code=fallback_response.status_code, details="non-json error body")
+        except requests.RequestException:
+            pass
 
     return None, scryfall_attempts
 
@@ -392,22 +506,38 @@ def cleanup_images(*file_paths):
             os.remove(file_path)
 
 def recognize_with_aws(processed_image, config):
+    dbg = debug_enabled(config)
+    debug_log(dbg, f"Running AWS recognition with processed_image={processed_image}")
     aws_config = config.get("aws", {})
     combined_image, crop1_height = crop_combined_areas(processed_image, config)
+    debug_log(dbg, f"Combined crop image created: {combined_image} (split at y={crop1_height})")
     card_name, collector_number, set_code = detect_text_combined(combined_image, crop1_height, aws_config)
+    debug_log(
+        dbg,
+        (
+            "AWS recognition result: "
+            f"card_name='{card_name}', set_code='{set_code}', collector_number='{collector_number}'"
+        )
+    )
     return card_name, collector_number, set_code
 
 
 def recognize_with_ollama(processed_image, config):
+    dbg = debug_enabled(config)
+    debug_log(dbg, f"Running Ollama recognition with processed_image={processed_image}")
     ollama_cfg = config.get("ollama", {})
     base_url = (ollama_cfg.get("base_url") or "http://localhost:11434").rstrip("/")
     model = ollama_cfg.get("model") or "minicpm-v:latest"
     timeout = int(ollama_cfg.get("timeout_seconds") or 60)
     min_confidence = float(ollama_cfg.get("min_confidence") or 0.80)
+    debug_ollama = parse_bool(ollama_cfg.get("debug"), default=False)
     require_set_and_collector = parse_bool(
         ollama_cfg.get("require_set_and_collector"),
         default=False
     )
+    env_debug_ollama = os.environ.get("DEBUG_OLLAMA")
+    if env_debug_ollama is not None:
+        debug_ollama = parse_bool(env_debug_ollama, default=debug_ollama)
     env_require_set = os.environ.get("REQUIRE_SET_AND_COLLECTOR")
     if env_require_set is not None:
         require_set_and_collector = parse_bool(
@@ -417,6 +547,7 @@ def recognize_with_ollama(processed_image, config):
 
     # Encode image
     img_b64 = image_to_base64(processed_image)
+    debug_log(dbg, f"Image encoded to base64 ({len(img_b64)} chars)")
 
     # Prompt: strict JSON and conservative fail behavior
     prompt = (
@@ -446,23 +577,44 @@ def recognize_with_ollama(processed_image, config):
         }
     }
 
+    if debug_ollama:
+        payload_debug = dict(payload)
+        image_list = payload.get("images") or []
+        if image_list:
+            payload_debug["images"] = [
+                f"<omitted base64 image #{idx + 1}, length={len(img)} chars>"
+                for idx, img in enumerate(image_list)
+            ]
+        print("[OLLAMA DEBUG] Request URL:", f"{base_url}/api/generate", file=sys.stderr)
+        print("[OLLAMA DEBUG] Request payload (images redacted):", file=sys.stderr)
+        print(json.dumps(payload_debug, indent=2), file=sys.stderr)
+
+    r = None
     try:
         r = requests.post(f"{base_url}/api/generate", json=payload, timeout=timeout)
+        if debug_ollama:
+            print("[OLLAMA DEBUG] HTTP status:", r.status_code, file=sys.stderr)
+            print("[OLLAMA DEBUG] Raw response body:", file=sys.stderr)
+            print(r.text, file=sys.stderr)
         r.raise_for_status()
         data = r.json()
+        debug_log(dbg, "Received JSON response from Ollama API")
 
         # Ollama generate responses typically include a "response" string
         response_text = data.get("response", "").strip()
         if not response_text:
             raise RuntimeError("Ollama returned an empty response")
 
-        parsed = json.loads(response_text)
+        parsed = parse_first_json_object(response_text)
+        debug_log(dbg, f"Parsed model JSON: {json.dumps(parsed)}")
 
-        confidence = parsed.get("confidence", 0.0)
-        try:
-            confidence = float(confidence)
-        except (TypeError, ValueError):
-            confidence = 0.0
+        confidence_raw = parsed.get("confidence", None)
+        confidence = None
+        if confidence_raw is not None:
+            try:
+                confidence = float(confidence_raw)
+            except (TypeError, ValueError):
+                confidence = None
 
         card_name_raw = parsed.get("card_name")
         if isinstance(card_name_raw, str):
@@ -492,30 +644,54 @@ def recognize_with_ollama(processed_image, config):
         else:
             collector_number = "Unknown"
 
-        # Conservative fail policy: prefer explicit failure over likely bad matches.
-        if confidence < min_confidence:
+        # Conservative fail policy: if confidence is present and low, reject.
+        # If confidence is omitted, allow name-only matching.
+        if confidence is not None and confidence < min_confidence:
+            debug_log(dbg, f"Rejecting result: confidence {confidence} < min_confidence {min_confidence}")
             return "Unknown", "Unknown", "Unknown"
+        if confidence is None:
+            debug_log(dbg, "Confidence missing/unparseable; continuing with name-based matching")
 
         if not card_name or card_name.lower() in {"unknown", "null", "none", "n/a"}:
+            debug_log(dbg, "Rejecting result: card_name missing/unknown")
             return "Unknown", "Unknown", "Unknown"
 
         if looks_like_type_line(card_name):
+            debug_log(dbg, f"Rejecting result: card_name looks like a type line ('{card_name}')")
             return "Unknown", "Unknown", "Unknown"
 
         if require_set_and_collector and (set_code == "Unknown" or collector_number == "Unknown"):
+            debug_log(
+                dbg,
+                "Rejecting result: REQUIRE_SET_AND_COLLECTOR is enabled and set/collector is Unknown"
+            )
             return "Unknown", "Unknown", "Unknown"
 
+        debug_log(
+            dbg,
+            (
+                "Accepted Ollama result: "
+                f"card_name='{card_name}', set_code='{set_code}', collector_number='{collector_number}', "
+                f"confidence={confidence}"
+            )
+        )
         return card_name, collector_number, set_code
         
 
 
     except Exception as e:
+        if debug_ollama:
+            print(f"[OLLAMA DEBUG] Exception: {str(e)}", file=sys.stderr)
+            if r is not None:
+                print("[OLLAMA DEBUG] Response body at exception:", file=sys.stderr)
+                print(r.text, file=sys.stderr)
         # Fail gracefully; your fetch_card_info will fallback if card_name is usable
         return "Unknown", "Unknown", "Unknown"
 
 
 def recognize_card(processed_image, config):
     provider = (config.get("recognition_provider") or "aws").lower().strip()
+    debug_log(debug_enabled(config), f"Dispatching recognition provider: {provider}")
     if provider == "ollama":
         return recognize_with_ollama(processed_image, config)
     return recognize_with_aws(processed_image, config)
@@ -531,24 +707,38 @@ def main():
     """
     try:
         config = load_config(CONFIG_PATH)
+        dbg = debug_enabled(config)
+        debug_log(dbg, f"Loaded config from {CONFIG_PATH}")
         processed_image = capture_image(config)
+        debug_log(dbg, f"Processed image ready: {processed_image}")
 
         # Create a permanent copy called "card_scanned.png" in the same directory.
         scanned_copy = os.path.join(output_directory_scanned, "card_scanned.png")
         shutil.copy(processed_image, scanned_copy)
+        debug_log(dbg, f"Copied processed image to UI path: {scanned_copy}")
 
         # Provider-aware recognition
         card_name, collector_number, set_code = recognize_card(processed_image, config)
+        debug_log(
+            dbg,
+            (
+                "Recognition output: "
+                f"card_name='{card_name}', set_code='{set_code}', collector_number='{collector_number}'"
+            )
+        )
 
     except Exception as e:
         print(json.dumps({"error": f"Image capture/process error: {str(e)}"}))
         return
 
-    card_info, scryfall_attempts = fetch_card_info(card_name, set_code, collector_number)
+    card_info, scryfall_attempts = fetch_card_info(card_name, set_code, collector_number, dbg=dbg)
+    debug_log(dbg, f"Scryfall attempts: {json.dumps(scryfall_attempts)}")
     if card_info:
+        debug_log(dbg, f"Final card match: {json.dumps(card_info)}")
         print(json.dumps(card_info))
     else:
         provider = (config.get("recognition_provider") or "aws")
+        debug_log(dbg, "No card match found after recognition + Scryfall")
         print(json.dumps({
             "error": "Unable to identify card from recognition + Scryfall query",
             "provider": provider,
@@ -561,6 +751,7 @@ def main():
         }))
 
     cleanup_images(processed_image)
+    debug_log(dbg, f"Cleaned up processed image: {processed_image}")
 
 if __name__ == "__main__":
     main()

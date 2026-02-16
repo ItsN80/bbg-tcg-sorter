@@ -35,6 +35,8 @@ COUNTER_FILE = os.path.join(BASE_DIR, "counters", "move_count.txt")
 MONTHLY_COUNTER_FILE = os.path.join(BASE_DIR, "counters", "monthly_move_count.txt")
 FAILED_READS_FILE = os.path.join(BASE_DIR, "counters", "failed_reads.txt")
 CONFIG_FILE = os.path.join(BASE_DIR, "storage", "config.json")
+BIN_INFO_FILE = os.path.join(BASE_DIR, "storage", "bin-info.json")
+BIN_INFO_DEFAULT_FILE = os.path.join(BASE_DIR, "storage", "bin-info-default.json")
 SCANNED_IMAGE_SRC = os.path.join(BASE_DIR, "storage", "scanned_card.png")
 SCANNED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_scanned.png")
 IDENTIFIED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_identified.png")
@@ -51,6 +53,14 @@ if not os.path.isfile(CONFIG_FILE):
         print("Default configuration file created from config-default.json.")
     else:
         print("Default configuration file config-default.json not found. Please create one.")
+
+# Check if bin-info.json exists; if not, copy bin-info-default.json as bin-info.json
+if not os.path.isfile(BIN_INFO_FILE):
+    if os.path.exists(BIN_INFO_DEFAULT_FILE):
+        shutil.copy(BIN_INFO_DEFAULT_FILE, BIN_INFO_FILE)
+        print("Default bin info file created from bin-info-default.json.")
+    else:
+        print("Default bin info file bin-info-default.json not found. Please create one.")
         
 # Global variable for the identified card URL (from API)
 card_identified_url = ""
@@ -146,6 +156,63 @@ def write_config(config):
     except Exception as e:
         print("Error writing config file:", e)
         return False
+
+def default_box_criteria():
+    return {
+        i: {"name": "", "type": "", "colors": [], "cmc": "", "set_symbol": ""}
+        for i in range(1, 11)
+    }
+
+def normalize_box_criteria(raw):
+    normalized = default_box_criteria()
+    if not isinstance(raw, dict):
+        return normalized
+
+    for raw_key, raw_value in raw.items():
+        try:
+            box_num = int(raw_key)
+        except (TypeError, ValueError):
+            continue
+
+        if box_num < 1 or box_num > 10 or not isinstance(raw_value, dict):
+            continue
+
+        colors_raw = raw_value.get("colors", [])
+        colors = []
+        if isinstance(colors_raw, list):
+            colors = [c for c in colors_raw if c in ["W", "U", "B", "R", "G", "C"]]
+
+        normalized[box_num] = {
+            "name": str(raw_value.get("name", "")).strip(),
+            "type": str(raw_value.get("type", "")).strip(),
+            "colors": colors,
+            "cmc": str(raw_value.get("cmc", "")).strip(),
+            "set_symbol": str(raw_value.get("set_symbol", "")).strip(),
+        }
+
+    return normalized
+
+def read_bin_info():
+    try:
+        with open(BIN_INFO_FILE, "r", encoding="utf-8") as f:
+            return normalize_box_criteria(json.load(f))
+    except Exception as e:
+        print("Error reading bin info file:", e)
+        return default_box_criteria()
+
+def write_bin_info(criteria):
+    try:
+        normalized = normalize_box_criteria(criteria)
+        serialized = {str(i): normalized.get(i, {}) for i in range(1, 11)}
+        with open(BIN_INFO_FILE, "w", encoding="utf-8") as f:
+            json.dump(serialized, f, indent=4)
+        return True
+    except Exception as e:
+        print("Error writing bin info file:", e)
+        return False
+
+with lock:
+    box_criteria = read_bin_info()
 
 def matches_criteria(card, criteria):
     # If no criteria specified, do not consider it a match.
@@ -472,13 +539,32 @@ def index():
                 crit["set_symbol"] = request.form.get(f"set_symbol{i}", "").strip()
                 new_criteria[i] = crit
             with lock:
-                box_criteria = new_criteria
+                box_criteria = normalize_box_criteria(new_criteria)
+                if not write_bin_info(box_criteria):
+                    print("Failed to persist bin info.")
             print("Submitted Card Criteria:")
             print("{")
             for key, criteria in new_criteria.items():
                 # Use separators to keep the inner dictionary on one line.
                 print(f'  "{key}": {json.dumps(criteria, separators=(", ", ": "))},')
             print("}")
+
+        elif "reset_bins" in request.form:
+            with lock:
+                if os.path.exists(BIN_INFO_DEFAULT_FILE):
+                    try:
+                        shutil.copy(BIN_INFO_DEFAULT_FILE, BIN_INFO_FILE)
+                    except Exception as e:
+                        print(f"Failed to reset bin info from default file: {e}")
+                        box_criteria = default_box_criteria()
+                        write_bin_info(box_criteria)
+                    else:
+                        box_criteria = read_bin_info()
+                else:
+                    print("bin-info-default.json not found. Resetting to empty criteria.")
+                    box_criteria = default_box_criteria()
+                    write_bin_info(box_criteria)
+            print("Bin criteria reset to default.")
 
 
         elif "clear_csv" in request.form:

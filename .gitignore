@@ -1,6 +1,7 @@
 # Ignore everything in the storage folder
 storage/card_info.csv
 storage/config.json
+storage/bin-info.json
 storage/card_scanned.png
 counters/monthly_move_count.txt
 counters/move_count.txt

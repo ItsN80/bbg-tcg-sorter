@@ -55,6 +55,26 @@
             border-radius: 4px;
             box-sizing: border-box;
         }
+        .inline-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        #led_hex {
+            width: 120px;
+        }
+        #led_brightness_value {
+            min-width: 40px;
+            display: inline-block;
+            text-align: right;
+            font-weight: 700;
+        }
+        #led_status {
+            margin-top: 8px;
+            min-height: 20px;
+            font-size: 0.9rem;
+        }
         button {
             padding: 8px 16px;
             background-color: #3498db;
@@ -169,6 +189,29 @@
             </p>
         </div>
 
+        <div class="section">
+            <h2>LED Strip</h2>
+            <label><input type="checkbox" id="led_enabled"> Enabled</label>
+
+            <label for="led_color">Color:</label>
+            <div class="inline-row">
+                <input type="color" id="led_color" value="#008cff">
+                <input type="text" id="led_hex" value="#008cff" maxlength="7" placeholder="#RRGGBB">
+            </div>
+
+            <label for="led_brightness">Brightness:</label>
+            <div class="inline-row">
+                <input type="range" id="led_brightness" min="0" max="100" value="35">
+                <span id="led_brightness_value">35%</span>
+            </div>
+
+            <div class="inline-row">
+                <button type="button" id="led_apply_btn">Apply</button>
+                <button type="button" id="led_off_btn" style="background-color: #7f8c8d;">Off</button>
+            </div>
+            <div id="led_status"></div>
+        </div>
+
 
         <div class="section">
             <h2>Shutdown Email Settings</h2>
@@ -202,22 +245,23 @@
     </form>
 
     <script>
-        function runScript(scriptName) {
-            fetch(`/run_script?script=${encodeURIComponent(scriptName)}`)
+        function runScript(scriptName, args) {
+            let url = `/run_script?script=${encodeURIComponent(scriptName)}`;
+            if (args) url += `&args=${encodeURIComponent(args)}`;
+            fetch(url)
                 .then(response => response.text())
                 .then(data => console.log(`Script ${scriptName} executed:`, data))
                 .catch(error => console.error(`Error running ${scriptName}:`, error));
         }
 
         function testFlapper(flapperName) {
-            const baseName = flapperName.replace('flapper_', 'Flapper-');
-            runScript(`scripts/${baseName}_Open.py`);
-            setTimeout(() => runScript(`scripts/${baseName}_Closed.py`), 2000);
+            runScript('scripts/servo_controller.py', `${flapperName} open`);
+            setTimeout(() => runScript('scripts/servo_controller.py', `${flapperName} close`), 2000);
         }
 
         function testCardServo() {
-            runScript("scripts/Card-Release.py");
-            setTimeout(() => runScript("scripts/Card-Capture.py"), 2000);
+            runScript('scripts/servo_controller.py', 'card_servo open');
+            setTimeout(() => runScript('scripts/servo_controller.py', 'card_servo close'), 2000);
         }
 
         function confirmAction(actionType) {
@@ -243,6 +287,127 @@
                     alert("Error updating program:\n" + err);
                 });
         }  
+
+        function setLedStatus(message, ok = true) {
+            const el = document.getElementById("led_status");
+            el.textContent = message;
+            el.style.color = ok ? "#1f7a1f" : "#b71c1c";
+        }
+
+        function normalizeHex(hex) {
+            if (typeof hex !== "string") return null;
+            const cleaned = hex.trim();
+            if (!/^#[0-9a-fA-F]{6}$/.test(cleaned)) return null;
+            return cleaned.toUpperCase();
+        }
+
+        function applyLedUiState(data) {
+            const enabled = !!data.enabled;
+            const r = Number((data.color || {}).r || 0);
+            const g = Number((data.color || {}).g || 0);
+            const b = Number((data.color || {}).b || 0);
+            const brightnessPct = Math.max(0, Math.min(100, Math.round(Number(data.brightness || 0) * 100)));
+            const hex = "#" + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("").toUpperCase();
+
+            document.getElementById("led_enabled").checked = enabled;
+            document.getElementById("led_color").value = hex;
+            document.getElementById("led_hex").value = hex;
+            document.getElementById("led_brightness").value = String(brightnessPct);
+            document.getElementById("led_brightness_value").textContent = `${brightnessPct}%`;
+        }
+
+        async function loadLedState() {
+            try {
+                const response = await fetch("/api/led");
+                const data = await response.json();
+                if (!response.ok) {
+                    if (data && data.enabled !== undefined) {
+                        applyLedUiState(data);
+                    }
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+                applyLedUiState(data);
+                setLedStatus("LED settings loaded.");
+            } catch (err) {
+                setLedStatus(`LED unavailable: ${err.message}`, false);
+            }
+        }
+
+        async function applyLedSettings() {
+            const enabled = document.getElementById("led_enabled").checked;
+            const slider = document.getElementById("led_brightness");
+            const hexInput = document.getElementById("led_hex");
+            const colorPicker = document.getElementById("led_color");
+            const hex = normalizeHex(hexInput.value) || normalizeHex(colorPicker.value);
+            if (!hex) {
+                setLedStatus("Invalid color. Use #RRGGBB.", false);
+                return;
+            }
+
+            const payload = {
+                enabled,
+                color: hex,
+                brightness: Number(slider.value)
+            };
+
+            try {
+                const response = await fetch("/api/led", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+                applyLedUiState(data);
+                setLedStatus("LED settings applied.");
+            } catch (err) {
+                setLedStatus(`Apply failed: ${err.message}`, false);
+            }
+        }
+
+        async function ledOff() {
+            try {
+                const response = await fetch("/api/led/off", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+                applyLedUiState(data);
+                setLedStatus("LED turned off.");
+            } catch (err) {
+                setLedStatus(`Off failed: ${err.message}`, false);
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const colorPicker = document.getElementById("led_color");
+            const hexInput = document.getElementById("led_hex");
+            const brightness = document.getElementById("led_brightness");
+            const brightnessLabel = document.getElementById("led_brightness_value");
+
+            colorPicker.addEventListener("input", () => {
+                hexInput.value = colorPicker.value.toUpperCase();
+            });
+            hexInput.addEventListener("input", () => {
+                const hex = normalizeHex(hexInput.value);
+                if (hex) {
+                    colorPicker.value = hex;
+                }
+            });
+            brightness.addEventListener("input", () => {
+                brightnessLabel.textContent = `${brightness.value}%`;
+            });
+
+            document.getElementById("led_apply_btn").addEventListener("click", applyLedSettings);
+            document.getElementById("led_off_btn").addEventListener("click", ledOff);
+
+            loadLedState();
+        });
         
     </script>
 </body>

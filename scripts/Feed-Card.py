@@ -94,8 +94,7 @@ pi.set_pull_up_down(sensor2_pin, pigpio.PUD_DOWN)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.normpath(os.path.join(BASE_DIR, "..", "storage", "config.json"))
 JAM_CAPTURE_SCRIPT = os.path.join(BASE_DIR, "Test-Camera.py")
-CARD_RELEASE_SCRIPT = os.path.join(BASE_DIR, "Card-Release.py")
-CARD_CAPTURE_SCRIPT = os.path.join(BASE_DIR, "Card-Capture.py")
+SERVO_CONTROLLER = os.path.join(BASE_DIR, "servo_controller.py")
 
 def read_config_value_motor2_extra_feed(default=1.2):
     try:
@@ -132,9 +131,10 @@ def capture_jam_snapshot(context):
 
 def run_script(script_path, label, timeout=60):
     try:
-        print(f"Running {label}: {script_path}")
+        cmd = ["python3"] + script_path if isinstance(script_path, list) else ["python3", script_path]
+        print(f"Running {label}: {cmd}")
         result = subprocess.run(
-            ["python3", script_path],
+            cmd,
             capture_output=True,
             text=True,
             timeout=timeout
@@ -153,9 +153,9 @@ def run_script(script_path, label, timeout=60):
 
 
 def run_recovery_sequence():
-    print("Feed attempts exhausted. Running recovery sequence (Card-Release, Card-Capture).")
-    release_ok = run_script(CARD_RELEASE_SCRIPT, "Card-Release.py")
-    capture_ok = run_script(CARD_CAPTURE_SCRIPT, "Card-Capture.py")
+    print("Feed attempts exhausted. Running recovery sequence (card_servo open, close).")
+    release_ok = run_script([SERVO_CONTROLLER, "card_servo", "open"], "card_servo open")
+    capture_ok = run_script([SERVO_CONTROLLER, "card_servo", "close"], "card_servo close")
     return release_ok and capture_ok
 
 

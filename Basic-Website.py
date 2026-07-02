@@ -5,6 +5,7 @@ import subprocess
 import os
 import threading
 import time
+import atexit
 import json  # for parsing card info output
 import csv   # for writing CSV files
 import shutil  # for copying files
@@ -13,6 +14,7 @@ import pigpio
 import urllib.parse
 import smtplib
 from email.mime.text import MIMEText
+from led_controller import LEDController, normalize_led_config
 
 app = Flask(__name__)
 
@@ -20,7 +22,8 @@ app = Flask(__name__)
 sorting_active = False      # Whether the sorting loop is active
 sorting_thread = None       # Thread running the sorting loop
 box_criteria = {}           # Dictionary mapping box numbers (1-10) to criteria
-lock = threading.Lock()     # Protects access to box_criteria
+lock = threading.Lock()       # Protects sorting_active, box_criteria
+stats_lock = threading.Lock() # Protects move_count, monthly_move_count, failed_read_count, card_identified_url
 
 # Global File Path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -143,19 +146,74 @@ failed_read_count = get_failed_read_count()
 def read_config():
     try:
         with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+            config = json.load(f)
+            return ensure_led_config(config)
     except Exception as e:
         print("Error reading config file:", e)
-        return {}
+        return ensure_led_config({})
 
 def write_config(config):
     try:
+        ensure_led_config(config)
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
         return True
     except Exception as e:
         print("Error writing config file:", e)
         return False
+
+
+def ensure_led_config(config):
+    if not isinstance(config, dict):
+        config = {}
+    config["led"] = normalize_led_config(config.get("led"))
+    return config
+
+
+def parse_hex_color(value):
+    if not isinstance(value, str):
+        raise ValueError("color must be a hex string like #RRGGBB")
+    raw = value.strip()
+    if len(raw) != 7 or not raw.startswith("#"):
+        raise ValueError("color must be in #RRGGBB format")
+    try:
+        r = int(raw[1:3], 16)
+        g = int(raw[3:5], 16)
+        b = int(raw[5:7], 16)
+    except ValueError:
+        raise ValueError("color must be valid hex in #RRGGBB format")
+    return {"r": r, "g": g, "b": b}
+
+
+def normalize_api_brightness(value):
+    if isinstance(value, bool):
+        raise ValueError("brightness must be numeric")
+    if isinstance(value, int) and 0 <= value <= 100:
+        return value / 100.0
+    try:
+        as_float = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("brightness must be a number in 0..1 or 0..100")
+    if 0.0 <= as_float <= 1.0:
+        return as_float
+    if 1.0 < as_float <= 100.0 and float(as_float).is_integer():
+        return as_float / 100.0
+    raise ValueError("brightness must be in 0..1 or 0..100")
+
+
+runtime_config = read_config()
+write_config(runtime_config)
+led_controller = LEDController(runtime_config.get("led"))
+led_state = led_controller.get_state()
+print(f"LED enabled: {led_state['enabled']}, gpio: {led_state['gpio']}, count: {led_state['count']}")
+
+
+@atexit.register
+def shutdown_led_controller():
+    try:
+        led_controller.close()
+    except Exception:
+        pass
 
 def default_box_criteria():
     return {
@@ -373,14 +431,15 @@ def send_shutdown_summary_email(config):
 
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count
+    led_controller.set_mode("sorting")
     while sorting_active:
         try:
             # Feed a new card.
-            feed_result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")], capture_output=True, text=True)
+            feed_result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")], capture_output=True, text=True, timeout=90)
             if feed_result.returncode != 0:
                 print("Initial feed failed, retrying after 2 seconds...")
                 time.sleep(2)
-                feed_result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")], capture_output=True, text=True)
+                feed_result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")], capture_output=True, text=True, timeout=90)
                 if feed_result.returncode != 0:
                     print("Feed failed again (return code: {}), stopping sorting.".format(feed_result.returncode))
                     sorting_active = False
@@ -389,36 +448,46 @@ def sorting_loop():
             # Read the card info.
             read_env = os.environ.copy()
             read_env["REQUIRE_SET_AND_COLLECTOR"] = "1" if any_box_has_set_symbol() else "0"
-            result = subprocess.run(
-                ["python3", os.path.join(BASE_DIR, "scripts", "Read-Card.py")],
-                capture_output=True,
-                text=True,
-                env=read_env
-            )
-            read_stdout = (result.stdout or "").strip()
-            read_stderr = (result.stderr or "").strip()
+            read_stdout = ""
+            read_stderr = ""
+            try:
+                result = subprocess.run(
+                    ["python3", os.path.join(BASE_DIR, "scripts", "Read-Card.py")],
+                    capture_output=True,
+                    text=True,
+                    env=read_env,
+                    timeout=120
+                )
+                read_stdout = (result.stdout or "").strip()
+                read_stderr = (result.stderr or "").strip()
 
-            if result.returncode != 0:
-                print(f"Read-Card.py failed with return code {result.returncode}.")
-                card = {
-                    "error": f"Read-Card.py exited with code {result.returncode}",
-                    "raw_stderr": read_stderr
-                }
-            else:
-                try:
-                    card = parse_card_output(read_stdout)
-                except json.JSONDecodeError:
-                    print("Error decoding card info. Using tray 10 as failover.")
+                if result.returncode != 0:
+                    print(f"Read-Card.py failed with return code {result.returncode}.")
                     card = {
-                        "error": "Decoding error from Read-Card.py output",
-                        "raw_stdout": read_stdout
+                        "error": f"Read-Card.py exited with code {result.returncode}",
+                        "raw_stderr": read_stderr
                     }
+                else:
+                    try:
+                        card = parse_card_output(read_stdout)
+                    except json.JSONDecodeError:
+                        print("Error decoding card info. Using tray 10 as failover.")
+                        card = {
+                            "error": "Decoding error from Read-Card.py output",
+                            "raw_stdout": read_stdout
+                        }
+            except subprocess.TimeoutExpired:
+                print("Read-Card.py timed out after 120 seconds, routing to bin 10.")
+                read_stderr = "Read-Card.py timed out after 120 seconds"
+                card = {"error": "Read-Card.py timed out", "raw_stderr": read_stderr}
 
              
             if "error" in card:
                 print(f"Error in card info: {card['error']}. Using tray 10 as failover.")
+                led_controller.set_color(255, 30, 30)
                 selected_box = 10
-                failed_read_count += 1
+                with stats_lock:
+                    failed_read_count += 1
                 save_failed_read_count(failed_read_count)
 
                 # Save Failed Card Image
@@ -451,8 +520,9 @@ def sorting_loop():
                 
                 # Update the global URL from the API data.
                 if "card_identified_url" in card and card["card_identified_url"]:
-                    card_identified_url = card["card_identified_url"]
-                    print("Updated card URL:", card_identified_url)
+                    with stats_lock:
+                        card_identified_url = card["card_identified_url"]
+                    print("Updated card URL:", card["card_identified_url"])
                 
                 # Determine the correct box.
                 selected_box = None
@@ -470,30 +540,35 @@ def sorting_loop():
             print(f"Selected Box: {selected_box} for card: {card}")
 
             # Process the card.
+            servo_ctrl = ["python3", os.path.join(BASE_DIR, "scripts", "servo_controller.py")]
             if selected_box == 10:
-                subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Card-Release.py")], check=True)
+                subprocess.run(servo_ctrl + ["card_servo", "open"], check=True, timeout=10)
                 time.sleep(2)
-                subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Card-Capture.py")], check=True)
+                subprocess.run(servo_ctrl + ["card_servo", "close"], check=True, timeout=10)
             else:
-                flapper_open_script = os.path.join(BASE_DIR, "scripts", f"Flapper-{selected_box}_Open.py")
-                subprocess.run(["python3", flapper_open_script], check=True)
-                subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Card-Release.py")], check=True)
+                flapper_key = f"flapper_{selected_box}"
+                subprocess.run(servo_ctrl + [flapper_key, "open"], check=True, timeout=10)
+                subprocess.run(servo_ctrl + ["card_servo", "open"], check=True, timeout=10)
                 time.sleep(2)
-                flapper_closed_script = os.path.join(BASE_DIR, "scripts", f"Flapper-{selected_box}_Closed.py")
-                subprocess.run(["python3", flapper_closed_script], check=True)
-                subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Card-Capture.py")], check=True)
+                subprocess.run(servo_ctrl + [flapper_key, "close"], check=True, timeout=10)
+                subprocess.run(servo_ctrl + ["card_servo", "close"], check=True, timeout=10)
                 
             
             # Update the scanned image.
             update_images(card)
         
+        except subprocess.TimeoutExpired as e:
+            print(f"Subprocess timed out, stopping sorting: {e}")
+            sorting_active = False
+            break
         except subprocess.CalledProcessError as e:
             print(f"Error during sorting process: {e}")
         except Exception as ex:
             print(f"Unexpected error: {ex}")
         
-        move_count += 1
-        monthly_move_count += 1
+        with stats_lock:
+            move_count += 1
+            monthly_move_count += 1
         save_move_count(move_count)
         save_monthly_move_count(monthly_move_count)
         time.sleep(0.5)
@@ -512,13 +587,19 @@ def index():
 
         if "start_sorting" in request.form:
             # ...
-            if not sorting_active:
-                sorting_active = True
+            with lock:
+                should_start = not sorting_active
+                if should_start:
+                    sorting_active = True
+            if should_start:
+                live_config = read_config()
+                led_controller.apply_config(live_config.get("led"))
                 sorting_thread = threading.Thread(target=sorting_loop, daemon=True)
                 sorting_thread.start()
 
         elif "stop_sorting" in request.form:
             sorting_active = False
+            led_controller.off()
             if sorting_thread:
                 sorting_thread.join(timeout=5)
                 sorting_thread = None
@@ -575,13 +656,15 @@ def index():
 
         elif "clear_monthly_count" in request.form:
             # Reset monthly count
-            monthly_move_count = 0
-            save_monthly_move_count(monthly_move_count)
+            with stats_lock:
+                monthly_move_count = 0
+            save_monthly_move_count(0)
             print("Monthly count reset to 0.")
 
         elif "clear_failed_count" in request.form:
             save_failed_read_count(0)
-            failed_read_count = 0
+            with stats_lock:
+                failed_read_count = 0
 
             # Clear all files in /static/images/failed
             for filename in os.listdir(FAILED_IMAGE_DEST):
@@ -596,21 +679,33 @@ def index():
 
 
     # GET or POST: Always render the index
+    with stats_lock:
+        _moves = move_count
+        _monthly = monthly_move_count
+        _url = card_identified_url
+    with lock:
+        _sorting_active = sorting_active
+        _box_criteria = box_criteria
     return render_template(
         "index.html",
-        moves=move_count,
-        monthly_moves=monthly_move_count,
+        moves=_moves,
+        monthly_moves=_monthly,
         cards=cards,
         error=error,
-        sorting_active=sorting_active,
-        box_criteria=box_criteria,
+        sorting_active=_sorting_active,
+        box_criteria=_box_criteria,
         csv_enabled=csv_enabled,
-        card_identified_url=card_identified_url
+        card_identified_url=_url
     )
 
 @app.route("/get_move_count", methods=["GET"])
 def get_move_count_route():
-    return jsonify({"moves": move_count,"monthly_moves": monthly_move_count, "failed_reads": failed_read_count,"card_identified_url": card_identified_url,"card_scanned_url": "/static/images/card_scanned.png"})
+    with stats_lock:
+        _moves = move_count
+        _monthly = monthly_move_count
+        _failed = failed_read_count
+        _url = card_identified_url
+    return jsonify({"moves": _moves, "monthly_moves": _monthly, "failed_reads": _failed, "card_identified_url": _url, "card_scanned_url": "/static/images/card_scanned.png"})
 
 @app.route("/download_csv", methods=["GET"])
 def download_csv():
@@ -618,6 +713,103 @@ def download_csv():
         return send_file(CSV_FILE, as_attachment=True, download_name="card_info.csv")
     else:
         return "CSV file not found.", 404
+
+
+@app.route("/api/led", methods=["GET"])
+def api_led_get():
+    state = led_controller.get_state()
+    if not state.get("enabled"):
+        return jsonify(state)
+    if not led_controller.is_available():
+        return jsonify({
+            **state,
+            "error": led_controller.get_error() or "LED disabled: pigpiod unavailable",
+        }), 503
+    return jsonify(state)
+
+
+@app.route("/api/led", methods=["POST"])
+def api_led_post():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid JSON payload"}), 400
+
+    try:
+        config = read_config()
+        led_cfg = config.get("led", {})
+        led_cfg = normalize_led_config(led_cfg)
+
+        if "enabled" in payload:
+            led_cfg["enabled"] = bool(payload.get("enabled"))
+
+        if "color" in payload:
+            color_payload = payload.get("color")
+            if isinstance(color_payload, str):
+                led_cfg["color"] = parse_hex_color(color_payload)
+            elif isinstance(color_payload, dict):
+                if not all(k in color_payload for k in ("r", "g", "b")):
+                    raise ValueError("color object must include r, g, b")
+                led_cfg["color"] = {
+                    "r": max(0, min(255, int(color_payload["r"]))),
+                    "g": max(0, min(255, int(color_payload["g"]))),
+                    "b": max(0, min(255, int(color_payload["b"]))),
+                }
+            else:
+                raise ValueError("color must be #RRGGBB or an object with r,g,b")
+
+        if "brightness" in payload:
+            led_cfg["brightness"] = normalize_api_brightness(payload.get("brightness"))
+
+        led_cfg = normalize_led_config(led_cfg)
+        config["led"] = led_cfg
+        if not write_config(config):
+            return jsonify({"error": "Failed to save LED settings"}), 500
+
+        led_controller.apply_config(led_cfg)
+        if not led_cfg["enabled"]:
+            led_controller.off()
+        else:
+            led_controller.set_color(
+                led_cfg["color"]["r"],
+                led_cfg["color"]["g"],
+                led_cfg["color"]["b"],
+                brightness=led_cfg["brightness"],
+            )
+
+        state = led_controller.get_state()
+        if not state.get("enabled"):
+            return jsonify(state)
+        if not led_controller.is_available():
+            return jsonify({
+                **state,
+                "error": led_controller.get_error() or "LED disabled: pigpiod unavailable",
+            }), 503
+        return jsonify(state)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Failed to update LED settings: {exc}"}), 500
+
+
+@app.route("/api/led/off", methods=["POST"])
+def api_led_off():
+    config = read_config()
+    led_cfg = normalize_led_config(config.get("led"))
+    led_cfg["enabled"] = False
+    config["led"] = led_cfg
+    if not write_config(config):
+        return jsonify({"error": "Failed to save LED settings"}), 500
+
+    led_controller.off()
+    state = led_controller.get_state()
+    if not state.get("enabled"):
+        return jsonify(state)
+    if not led_controller.is_available():
+        return jsonify({
+            **state,
+            "error": led_controller.get_error() or "LED disabled: pigpiod unavailable",
+        }), 503
+    return jsonify(state)
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
@@ -767,7 +959,7 @@ def camera_test():
             }
 
             write_config(config)
-            subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Test-Camera.py")], check=True)
+            subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Test-Camera.py")], check=True, timeout=30)
         except Exception as e:
             error = f"Failed to update camera settings: {str(e)}"
 
@@ -794,10 +986,16 @@ def run_script():
     if not os.path.exists(script_path):
         return f"Script not found: {script_path}", 404
 
+    # Optional positional args (space-separated, no shell expansion)
+    raw_args = request.args.get("args", "").strip()
+    cmd = ["python3", script_path] + (raw_args.split() if raw_args else [])
+
     # Execute the script
     try:
-        output = subprocess.check_output(["python3", script_path], stderr=subprocess.STDOUT)
+        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=15)
         return output.decode()
+    except subprocess.TimeoutExpired:
+        return "Script timed out", 500
     except subprocess.CalledProcessError as e:
         return f"Script failed:\n{e.output.decode()}", 500
 
@@ -811,4 +1009,7 @@ def sensors_page():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0')
+    # Disable the Werkzeug reloader so only one process drives pigpio/LEDs.
+    # The debug reloader spawns an extra process, which can cause concurrent
+    # WS2812 writes and visual corruption.
+    app.run(debug=True, use_reloader=False, host='0.0.0.0')

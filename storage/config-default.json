@@ -13,43 +13,53 @@
     "scryfall_search_url": "https://api.scryfall.com/cards/named?fuzzy={}",
     "flappers": {
         "flapper_1": {
+            "channel": 0,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_2": {
+            "channel": 1,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_3": {
+            "channel": 2,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_4": {
+            "channel": 3,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_5": {
+            "channel": 4,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_6": {
+            "channel": 5,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_7": {
+            "channel": 6,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_8": {
+            "channel": 7,
             "open_degrees": 80,
             "close_degrees": 110
         },
         "flapper_9": {
+            "channel": 8,
             "open_degrees": 80,
             "close_degrees": 110
         }
     },
     "card_servo": {
+        "channel": 9,
         "open_degrees": 5,
         "close_degrees": 160
     },
@@ -78,6 +88,17 @@
             "y1": 828,
             "x2": 577,
             "y2": 885
+        }
+    },
+    "led": {
+        "enabled": true,
+        "gpio": 12,
+        "count": 8,
+        "brightness": 0.35,
+        "color": {
+            "r": 0,
+            "g": 140,
+            "b": 255
         }
     }
 }

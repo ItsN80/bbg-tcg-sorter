@@ -67,6 +67,7 @@ if not os.path.isfile(BIN_INFO_FILE):
         
 # Global variable for the identified card URL (from API)
 card_identified_url = ""
+do_credits = None  # Cached remaining_credits from DO Serverless backend
 
 # Initialize pigpio globally
 pi = pigpio.pi()
@@ -163,6 +164,28 @@ def write_config(config):
         return False
 
 
+def fetch_do_balance():
+    config = read_config()
+    if config.get("recognition_provider") != "do_serverless":
+        return None
+    ollama_cfg = config.get("ollama", {})
+    base_url = (ollama_cfg.get("base_url") or "").rstrip("/")
+    api_key = ollama_cfg.get("api_key", "")
+    if not base_url or not api_key:
+        return None
+    try:
+        r = requests.get(
+            f"{base_url}/balance",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10
+        )
+        r.raise_for_status()
+        return r.json().get("remaining_credits")
+    except Exception as e:
+        print(f"fetch_do_balance error: {e}")
+        return None
+
+
 def ensure_led_config(config):
     if not isinstance(config, dict):
         config = {}
@@ -206,6 +229,11 @@ write_config(runtime_config)
 led_controller = LEDController(runtime_config.get("led"))
 led_state = led_controller.get_state()
 print(f"LED enabled: {led_state['enabled']}, gpio: {led_state['gpio']}, count: {led_state['count']}")
+
+_startup_credits = fetch_do_balance()
+if _startup_credits is not None:
+    do_credits = _startup_credits
+    print(f"DO Serverless credits on startup: {do_credits}")
 
 
 @atexit.register
@@ -430,8 +458,21 @@ def send_shutdown_summary_email(config):
                 print("Failed to send shutdown summary email:", e)
 
 def sorting_loop():
-    global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count
+    global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count, do_credits
     led_controller.set_mode("sorting")
+    _led_state = led_controller.get_state()
+    _idle_color = (
+        _led_state.get("color", {}).get("r", 0),
+        _led_state.get("color", {}).get("g", 140),
+        _led_state.get("color", {}).get("b", 255),
+    )
+    _live_config = read_config()
+    _is_do = _live_config.get("recognition_provider") == "do_serverless"
+    if _is_do:
+        _bal = fetch_do_balance()
+        if _bal is not None:
+            with stats_lock:
+                do_credits = _bal
     while sorting_active:
         try:
             # Feed a new card.
@@ -566,12 +607,19 @@ def sorting_loop():
         except Exception as ex:
             print(f"Unexpected error: {ex}")
         
+        led_controller.set_color(*_idle_color)
         with stats_lock:
             move_count += 1
             monthly_move_count += 1
         save_move_count(move_count)
         save_monthly_move_count(monthly_move_count)
+        if _is_do:
+            _bal = fetch_do_balance()
+            if _bal is not None:
+                with stats_lock:
+                    do_credits = _bal
         time.sleep(0.5)
+    led_controller.set_color(*_idle_color)
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -683,9 +731,11 @@ def index():
         _moves = move_count
         _monthly = monthly_move_count
         _url = card_identified_url
+        _credits = do_credits
     with lock:
         _sorting_active = sorting_active
         _box_criteria = box_criteria
+    _live_config = read_config()
     return render_template(
         "index.html",
         moves=_moves,
@@ -695,7 +745,9 @@ def index():
         sorting_active=_sorting_active,
         box_criteria=_box_criteria,
         csv_enabled=csv_enabled,
-        card_identified_url=_url
+        card_identified_url=_url,
+        recognition_provider=_live_config.get("recognition_provider", "aws"),
+        do_credits=_credits,
     )
 
 @app.route("/get_move_count", methods=["GET"])
@@ -705,7 +757,8 @@ def get_move_count_route():
         _monthly = monthly_move_count
         _failed = failed_read_count
         _url = card_identified_url
-    return jsonify({"moves": _moves, "monthly_moves": _monthly, "failed_reads": _failed, "card_identified_url": _url, "card_scanned_url": "/static/images/card_scanned.png"})
+        _credits = do_credits
+    return jsonify({"moves": _moves, "monthly_moves": _monthly, "failed_reads": _failed, "card_identified_url": _url, "card_scanned_url": "/static/images/card_scanned.png", "credits": _credits})
 
 @app.route("/download_csv", methods=["GET"])
 def download_csv():
@@ -841,6 +894,7 @@ def settings():
             config["recognition_provider"] = request.form.get("recognition_provider", "aws")
             config["ollama"]["base_url"] = request.form.get("ollama_base_url", "").strip()
             config["ollama"]["model"] = request.form.get("ollama_model", "").strip()
+            config["ollama"]["api_key"] = request.form.get("ollama_api_key", "").strip()
             if "smtp" not in config:
                 config["smtp"] = {}  # Ensure smtp key exists in config
             config["smtp"]["server"] = request.form.get("smtp_server", "")

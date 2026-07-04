@@ -324,6 +324,10 @@ def detect_text_combined(image_path, crop1_height, aws_config):
     return card_name, collector_number, set_code
 
 def fetch_card_info(card_name, set_code, collector_number, dbg=False):
+    if not card_name or card_name.lower() in {"unknown", "null", "none", "n/a"}:
+        return None, [{"stage": "skipped", "url": None, "status_code": None,
+                       "details": "card_name unknown — Scryfall lookup skipped", "error": None}]
+
     scryfall_attempts = []
     scryfall_timeout_seconds = 30
     scryfall_max_attempts = 3
@@ -348,7 +352,8 @@ def fetch_card_info(card_name, set_code, collector_number, dbg=False):
                         f"url={url} params={params}"
                     )
                 )
-                response = requests.get(url, params=params, timeout=scryfall_timeout_seconds)
+                response = requests.get(url, params=params, timeout=scryfall_timeout_seconds,
+                                        headers={"User-Agent": "bbg-tcg-sorter/1.0"})
                 return response, None
             except requests.RequestException as e:
                 last_error = str(e)
@@ -589,9 +594,12 @@ def recognize_with_ollama(processed_image, config):
         print("[OLLAMA DEBUG] Request payload (images redacted):", file=sys.stderr)
         print(json.dumps(payload_debug, indent=2), file=sys.stderr)
 
+    api_key = ollama_cfg.get("api_key", "")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
     r = None
     try:
-        r = requests.post(f"{base_url}/api/generate", json=payload, timeout=timeout)
+        r = requests.post(f"{base_url}/api/generate", json=payload, headers=headers, timeout=timeout)
         if debug_ollama:
             print("[OLLAMA DEBUG] HTTP status:", r.status_code, file=sys.stderr)
             print("[OLLAMA DEBUG] Raw response body:", file=sys.stderr)
@@ -616,7 +624,7 @@ def recognize_with_ollama(processed_image, config):
             except (TypeError, ValueError):
                 confidence = None
 
-        card_name_raw = parsed.get("card_name")
+        card_name_raw = parsed.get("card_name") or parsed.get("name")
         if isinstance(card_name_raw, str):
             card_name = card_name_raw.strip() or "Unknown"
         else:
@@ -692,7 +700,7 @@ def recognize_with_ollama(processed_image, config):
 def recognize_card(processed_image, config):
     provider = (config.get("recognition_provider") or "aws").lower().strip()
     debug_log(debug_enabled(config), f"Dispatching recognition provider: {provider}")
-    if provider == "ollama":
+    if provider in ("ollama", "do_serverless"):
         return recognize_with_ollama(processed_image, config)
     return recognize_with_aws(processed_image, config)
 

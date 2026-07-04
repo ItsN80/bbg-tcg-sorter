@@ -6,7 +6,8 @@
     },
     "recognition_provider": "aws",
     "ollama": {
-        "base_url": "http://YOUR-TRUENAS-IP:11434",
+        "base_url": "http://SERVER-IP-ADDRESS-HERE:8000",
+        "api_key": "PASTE_THE_REAL_API_KEY_HERE",
         "model": "minicpm-v:latest",
         "timeout_seconds": 60
     },

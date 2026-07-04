@@ -103,6 +103,18 @@
         input[type="checkbox"] {
             margin-right: 5px;
         }
+        .credits-badge {
+            background: linear-gradient(135deg, #1a7a3a, #27ae60);
+            color: white;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-align: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            width: 100%;
+            box-sizing: border-box;
+        }
     </style>
 </head>
 <body>
@@ -114,6 +126,9 @@
                 <img id="cardScanned" src="/static/images/card_scanned.png" alt="Scanned Card Image">
             </div>
             <div class="button-container">
+                <div id="creditsBadge" class="credits-badge" style="{{ '' if recognition_provider == 'do_serverless' else 'display: none;' }}">
+                    DO Serverless Credits Remaining: <strong><span id="creditsCount">{{ do_credits if do_credits is not none else '--' }}</span></strong>
+                </div>
                 <div>
                     <button type="submit" name="start_sorting">Start Sorting</button>
                     <label>
@@ -187,6 +202,15 @@
                         document.getElementById("cardIdentified").src = data.card_identified_url + "?t=" + new Date().getTime();
                     }
                     document.getElementById("cardScanned").src = data.card_scanned_url + "?t=" + new Date().getTime();
+                    const badge = document.getElementById("creditsBadge");
+                    if (badge) {
+                        if (data.credits !== null && data.credits !== undefined) {
+                            badge.style.display = "";
+                            document.getElementById("creditsCount").innerText = data.credits.toLocaleString();
+                        } else {
+                            badge.style.display = "none";
+                        }
+                    }
                 })
                 .catch(error => console.error("Error fetching counts:", error));
         }

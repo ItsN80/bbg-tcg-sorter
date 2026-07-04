@@ -114,20 +114,26 @@
 
             <label for="recognition_provider">Recognition Provider:</label>
             <select id="recognition_provider" name="recognition_provider">
-            <option value="aws" {{ 'selected' if config.recognition_provider == 'aws' else '' }}>Amazon Rekognition</option>
-            <option value="ollama" {{ 'selected' if config.recognition_provider == 'ollama' else '' }}>Ollama (MiniCPM-V)</option>
+                <option value="aws" {{ 'selected' if config.recognition_provider == 'aws' else '' }}>Amazon Rekognition</option>
+                <option value="ollama" {{ 'selected' if config.recognition_provider == 'ollama' else '' }}>Ollama (MiniCPM-V)</option>
+                <option value="do_serverless" {{ 'selected' if config.recognition_provider == 'do_serverless' else '' }}>DO Serverless</option>
             </select>
 
             <div class="subsection" style="margin-top: 15px;">
-                <h3>Ollama Settings</h3>
+                <h3>Ollama / DO Serverless Settings</h3>
 
-                <label for="ollama_base_url">Ollama Base URL:</label>
+                <label for="ollama_base_url">Base URL:</label>
                 <input type="text" id="ollama_base_url" name="ollama_base_url"
                     value="{{ (config.ollama.base_url if config.ollama is defined and config.ollama.base_url is defined else '') }}">
 
                 <label for="ollama_model">Model:</label>
                 <input type="text" id="ollama_model" name="ollama_model"
                     value="{{ (config.ollama.model if config.ollama is defined and config.ollama.model is defined else '') }}">
+
+                <label for="ollama_api_key">API Key:</label>
+                <input type="text" id="ollama_api_key" name="ollama_api_key"
+                    value="{{ (config.ollama.api_key if config.ollama is defined and config.ollama.api_key is defined else '') }}"
+                    placeholder="Leave blank if not required">
             </div>
         </div>
 

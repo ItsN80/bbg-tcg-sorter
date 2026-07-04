@@ -13,3 +13,4 @@ static/images/combined_crop.jpg
 storage/failed_reads.jsonl
 __pycache__/
 *.py[cod]
+scripts/Test-DO-Endpoint.py

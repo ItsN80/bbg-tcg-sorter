@@ -10,9 +10,9 @@ import subprocess
 # -----------------------------
 # Pin Definitions (BCM)
 # -----------------------------
-MOTOR_1_PINS = [19, 26, 4, 17]
-MOTOR_2_PINS = [27, 22, 10, 9]
-MOTOR_3_PINS = [11, 7, 5, 6]
+MOTOR_1_PINS = [4, 17, 27, 22]
+MOTOR_2_PINS = [10, 9, 11, 5]
+MOTOR_3_PINS = [6, 13, 19, 26]
 
 sensor1_pin = 8
 sensor2_pin = 14

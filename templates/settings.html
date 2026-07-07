@@ -284,8 +284,9 @@
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
+                        const restarting = data.message.includes("Restarting the app");
                         alert("Program updated:\n" + data.message);
-                        location.reload();
+                        setTimeout(() => location.reload(), restarting ? 4000 : 0);
                     } else {
                         alert("Update failed:\n" + data.message);
                     }

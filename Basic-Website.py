@@ -1009,9 +1009,22 @@ def settings():
     
 @app.route("/update_program", methods=["POST"])
 def update_program():
+    with lock:
+        if sorting_active:
+            return jsonify({"success": False, "message": "Stop sorting before updating the program."}), 409
     try:
         result = subprocess.check_output(["git", "-C", BASE_DIR, "pull"], stderr=subprocess.STDOUT)
-        return jsonify({"success": True, "message": result.decode()})
+        message = result.decode()
+        if "Already up to date" in message:
+            return jsonify({"success": True, "message": message})
+
+        def _restart_service():
+            time.sleep(1)
+            os.system("sudo systemctl restart card-sorter.service")
+
+        threading.Thread(target=_restart_service, daemon=True).start()
+        message += "\n\nRestarting the app to apply the update..."
+        return jsonify({"success": True, "message": message})
     except subprocess.CalledProcessError as e:
         return jsonify({"success": False, "message": e.output.decode()}), 500
     

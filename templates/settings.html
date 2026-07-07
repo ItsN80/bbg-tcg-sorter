@@ -119,7 +119,7 @@
                 <option value="do_serverless" {{ 'selected' if config.recognition_provider == 'do_serverless' else '' }}>DO Serverless</option>
             </select>
 
-            <div class="subsection" style="margin-top: 15px;">
+            <div class="subsection" id="ollama_settings" style="margin-top: 15px;">
                 <h3>Ollama / DO Serverless Settings</h3>
 
                 <label for="ollama_base_url">Base URL:</label>
@@ -131,19 +131,19 @@
                     value="{{ (config.ollama.model if config.ollama is defined and config.ollama.model is defined else '') }}">
 
                 <label for="ollama_api_key">API Key:</label>
-                <input type="text" id="ollama_api_key" name="ollama_api_key"
+                <input type="password" id="ollama_api_key" name="ollama_api_key"
                     value="{{ (config.ollama.api_key if config.ollama is defined and config.ollama.api_key is defined else '') }}"
                     placeholder="Leave blank if not required">
             </div>
         </div>
 
-        <div class="section">
+        <div class="section" id="aws_settings">
             <h2>AWS Settings</h2>
             <label for="aws_access_key_id">Access Key ID:</label>
             <input type="text" id="aws_access_key_id" name="aws_access_key_id" value="{{ config.aws.access_key_id or '' }}">
 
             <label for="aws_secret_access_key">Secret Access Key:</label>
-            <input type="text" id="aws_secret_access_key" name="aws_secret_access_key" value="{{ config.aws.secret_access_key or '' }}">
+            <input type="password" id="aws_secret_access_key" name="aws_secret_access_key" value="{{ config.aws.secret_access_key or '' }}">
 
             <label for="aws_region_name">Region Name:</label>
             <input type="text" id="aws_region_name" name="aws_region_name" value="{{ config.aws.region_name or '' }}">
@@ -244,6 +244,7 @@
             <button type="button" onclick="confirmAction('shutdown')" style="background-color: #c0392b;">Shutdown Pi</button>
             <button type="button" onclick="updateProgram()">Update Program</button>
             <a href="{{ url_for('camera_test') }}"><button type="button">Camera Testing</button></a>
+            <a href="{{ url_for('logout') }}"><button type="button" style="background-color: #7f8c8d;">Log Out</button></a>
         </div>
 
         <!-- Hidden input to pass system actions -->
@@ -390,7 +391,17 @@
             }
         }
 
+        function updateProviderVisibility() {
+            const provider = document.getElementById("recognition_provider").value;
+            const isAws = provider === "aws";
+            document.getElementById("ollama_settings").style.display = isAws ? "none" : "block";
+            document.getElementById("aws_settings").style.display = isAws ? "block" : "none";
+        }
+
         document.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("recognition_provider").addEventListener("change", updateProviderVisibility);
+            updateProviderVisibility();
+
             const colorPicker = document.getElementById("led_color");
             const hexInput = document.getElementById("led_hex");
             const brightness = document.getElementById("led_brightness");

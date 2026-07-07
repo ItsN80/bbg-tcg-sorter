@@ -101,5 +101,9 @@
             "g": 140,
             "b": 255
         }
+    },
+    "auth": {
+        "password_hash": "",
+        "secret_key": ""
     }
 }

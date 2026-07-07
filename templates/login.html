@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ 'Set Up Password' if first_run else 'Log In' }}</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        form {
+            max-width: 360px;
+            width: 100%;
+            margin: auto;
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+            font-weight: 500;
+        }
+        input[type="password"] {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        p.hint {
+            opacity: 0.75;
+            font-size: 0.9rem;
+        }
+        p.error {
+            color: #c0392b;
+            font-weight: 500;
+        }
+        button {
+            width: 100%;
+            padding: 10px 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            font-size: 1rem;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <form method="POST">
+        <h1>{{ 'Set Up Password' if first_run else 'Card Sorter Login' }}</h1>
+
+        {% if error %}
+          <p class="error">{{ error }}</p>
+        {% endif %}
+
+        {% if first_run %}
+            <p class="hint">No password is set yet. Choose one to protect this device before continuing.</p>
+            <label for="new_password">New Password:</label>
+            <input type="password" id="new_password" name="new_password" minlength="8" required autofocus>
+
+            <label for="confirm_password">Confirm Password:</label>
+            <input type="password" id="confirm_password" name="confirm_password" minlength="8" required>
+        {% else %}
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required autofocus>
+            <input type="hidden" name="next" value="{{ next }}">
+        {% endif %}
+
+        <button type="submit">{{ 'Set Password' if first_run else 'Log In' }}</button>
+    </form>
+</body>
+</html>

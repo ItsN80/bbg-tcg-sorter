@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session
 import subprocess
 import os
+import secrets
 import threading
 import time
 import atexit
@@ -14,6 +15,7 @@ import pigpio
 import urllib.parse
 import smtplib
 from email.mime.text import MIMEText
+from werkzeug.security import generate_password_hash, check_password_hash
 from led_controller import LEDController, normalize_led_config
 
 app = Flask(__name__)
@@ -148,14 +150,14 @@ def read_config():
     try:
         with open(CONFIG_FILE, "r") as f:
             config = json.load(f)
-            return ensure_led_config(config)
+            return ensure_auth_config(ensure_led_config(config))
     except Exception as e:
         print("Error reading config file:", e)
-        return ensure_led_config({})
+        return ensure_auth_config(ensure_led_config({}))
 
 def write_config(config):
     try:
-        ensure_led_config(config)
+        ensure_auth_config(ensure_led_config(config))
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
         return True
@@ -193,6 +195,16 @@ def ensure_led_config(config):
     return config
 
 
+def ensure_auth_config(config):
+    auth_cfg = config.get("auth")
+    if not isinstance(auth_cfg, dict):
+        auth_cfg = {}
+    auth_cfg.setdefault("password_hash", "")
+    auth_cfg.setdefault("secret_key", "")
+    config["auth"] = auth_cfg
+    return config
+
+
 def parse_hex_color(value):
     if not isinstance(value, str):
         raise ValueError("color must be a hex string like #RRGGBB")
@@ -225,7 +237,11 @@ def normalize_api_brightness(value):
 
 
 runtime_config = read_config()
+if not runtime_config["auth"]["secret_key"]:
+    runtime_config["auth"]["secret_key"] = secrets.token_hex(32)
 write_config(runtime_config)
+app.secret_key = runtime_config["auth"]["secret_key"]
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 led_controller = LEDController(runtime_config.get("led"))
 led_state = led_controller.get_state()
 print(f"LED enabled: {led_state['enabled']}, gpio: {led_state['gpio']}, count: {led_state['count']}")
@@ -620,6 +636,58 @@ def sorting_loop():
                     do_credits = _bal
         time.sleep(0.5)
     led_controller.set_color(*_idle_color)
+
+PUBLIC_ENDPOINTS = {"login", "static"}
+
+@app.before_request
+def require_login():
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return None
+    if not session.get("logged_in"):
+        return redirect(url_for("login", next=request.path))
+    return None
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    config = read_config()
+    password_hash = config["auth"]["password_hash"]
+    first_run = not password_hash
+    error = None
+
+    if request.method == "POST":
+        if first_run:
+            new_password = request.form.get("new_password", "")
+            confirm_password = request.form.get("confirm_password", "")
+            if len(new_password) < 8:
+                error = "Password must be at least 8 characters."
+            elif new_password != confirm_password:
+                error = "Passwords do not match."
+            else:
+                config["auth"]["password_hash"] = generate_password_hash(new_password)
+                write_config(config)
+                session["logged_in"] = True
+                return redirect(url_for("index"))
+        else:
+            password = request.form.get("password", "")
+            if check_password_hash(password_hash, password):
+                session["logged_in"] = True
+                return redirect(request.form.get("next") or url_for("index"))
+            error = "Incorrect password."
+
+    return render_template(
+        "login.html",
+        first_run=first_run,
+        error=error,
+        next=request.args.get("next", "")
+    )
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -1028,12 +1096,14 @@ def run_script():
     # Decode the script path
     script_rel_path = urllib.parse.unquote(raw_script)
 
-    # Combine with base directory
-    script_path = os.path.join(BASE_DIR, script_rel_path)
+    # Combine with base directory and resolve any ".." / symlink components
+    # before checking containment, so a resolved path can't string-match its
+    # way past a naive startswith() check.
+    scripts_dir = os.path.realpath(os.path.join(BASE_DIR, "scripts"))
+    script_path = os.path.realpath(os.path.join(scripts_dir, script_rel_path))
 
     # Security check: prevent escaping out of the scripts directory
-    scripts_dir = os.path.join(BASE_DIR, "scripts")
-    if not script_path.startswith(scripts_dir):
+    if os.path.commonpath([script_path, scripts_dir]) != scripts_dir:
         return "Invalid script path", 403
 
     # Check existence
@@ -1066,4 +1136,4 @@ if __name__ == "__main__":
     # Disable the Werkzeug reloader so only one process drives pigpio/LEDs.
     # The debug reloader spawns an extra process, which can cause concurrent
     # WS2812 writes and visual corruption.
-    app.run(debug=True, use_reloader=False, host='0.0.0.0')
+    app.run(debug=False, use_reloader=False, host='0.0.0.0')

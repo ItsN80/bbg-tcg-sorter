@@ -7,90 +7,352 @@
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg: #f4f4f9;
+            --ink: #2c3e50;
+            --muted: #6b7a86;
+            --border: #e0e4e8;
+            --card-bg: #ffffff;
+            --tile-bg: #eef1f4;
+            --accent: #3498db;
+            --accent-hover: #2980b9;
+            --accent-soft: #eaf4fc;
+        }
+        * { box-sizing: border-box; }
+        html, body {
+            height: 100%;
+        }
         body {
             font-family: 'Roboto', sans-serif;
             margin: 0;
             padding: 0;
-            background-color: #f4f4f9;
+            background-color: var(--bg);
             color: #333;
         }
         h1, h2, h3 {
-            text-align: center;
-            color: #2c3e50;
+            color: var(--ink);
+            margin: 0;
         }
-        form {
-            max-width: 1400px;
-            margin: auto;
-            padding: 20px;
-            background-color: #ffffff;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-        }
-        .top-section {
+        .app-shell {
             display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            gap: 20px;
-            margin-bottom: 30px;
+            flex-direction: column;
+            min-height: 100vh;
+            padding: 14px 20px 20px;
+            gap: 12px;
         }
-        .image-box {
-            flex: 1;
-            min-width: 240px;
-            background-color: #ecf0f1;
-            padding: 15px;
-            border-radius: 10px;
+        .page-title {
+            font-size: 1.3rem;
             text-align: center;
+            margin-bottom: 2px;
+        }
+
+        /* Top control row: game switcher + tab switcher */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .switcher-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 8px 18px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: 1.5px solid transparent;
+            cursor: pointer;
+            background: var(--tile-bg);
+            color: var(--muted);
+            font-family: inherit;
+            transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .pill.game-pill.active {
+            background: var(--accent);
+            color: #fff;
+        }
+        .pill.game-pill-add {
+            background: transparent;
+            border: 1.5px dashed #b7c0c8;
+            color: #9aa5ae;
+            cursor: not-allowed;
+        }
+        .pill.tab-pill.active {
+            background: var(--ink);
+            color: #fff;
+        }
+        .pill.tab-pill:not(.active):hover {
+            background: #e2e7eb;
+        }
+
+        /* Shared card / panel styling */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+        }
+        .card-label {
+            text-align: center;
+            font-size: 0.95rem;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        /* Panels */
+        .panels {
+            flex: 1;
+            min-height: 0;
+        }
+        .panel {
+            display: none;
+            height: 100%;
+            min-height: 0;
+        }
+        .panel.active {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* Live Sorting layout */
+        #panel-live.active {
+            display: grid;
+            grid-template-columns: 1fr 1.3fr 1fr;
+            gap: 16px;
+            align-items: stretch;
+        }
+        .live-col {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
         }
         .image-box img {
             max-width: 100%;
+            display: block;
+            margin: 0 auto;
             border-radius: 8px;
         }
-        .button-container {
-            flex: 2;
-            min-width: 280px;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            gap: 20px;
-            padding: 10px;
-            background-color: #fdfefe;
-            border-radius: 10px;
-            border: 1px solid #ddd;
+
+        /* Credits */
+        .credits-tile {
+            text-align: center;
         }
-        .button-container button,
-        .button-container a button {
-            padding: 10px 20px;
-            font-size: 1rem;
+        .credits-tile .stat-label {
+            margin-bottom: 4px;
+        }
+        .credits-tile .credits-number {
+            font-size: 2.4rem;
+            font-weight: 700;
+            color: var(--accent);
+            line-height: 1.1;
+        }
+
+        /* Buttons */
+        .btn {
+            font-family: inherit;
             border: none;
-            border-radius: 5px;
-            background-color: #3498db;
-            color: white;
+            border-radius: 6px;
             cursor: pointer;
-            transition: background-color 0.3s;
         }
-        .button-container button:hover {
-            background-color: #2980b9;
-        }
-        .csv-controls {
+        .primary-actions {
             display: flex;
-            gap: 15px;
-            align-items: center;
+            gap: 10px;
         }
-        .card-row {
+        .btn-primary {
+            flex: 1;
+            background: var(--accent);
+            color: #fff;
+            padding: 12px 20px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 6px;
+        }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary {
+            flex: 1;
+            background: transparent;
+            color: var(--accent);
+            border: 1.5px solid var(--accent);
+            padding: 12px 20px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 6px;
+        }
+        .btn-secondary:hover { background: var(--accent-soft); }
+
+        /* Stat tiles */
+        .stat-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        .stat-tile {
+            background: var(--tile-bg);
+            border-radius: 8px;
+            padding: 10px 6px;
+            text-align: center;
+        }
+        .stat-label {
+            display: block;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        .stat-value {
+            display: block;
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        /* Secondary / tertiary button row */
+        .secondary-actions {
             display: flex;
             flex-wrap: wrap;
+            gap: 8px;
             justify-content: center;
-            gap: 15px;
         }
-        .card-box {
-            background-color: #fafafa;
-            border: 1px solid #ccc;
-            padding: 5px;
+        .btn-tertiary {
+            background: var(--tile-bg);
+            color: #41505c;
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            border-radius: 6px;
+        }
+        .btn-tertiary:hover { background: #e2e7eb; }
+
+        /* CSV / reset group */
+        .csv-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .csv-group .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+        }
+        .csv-group .csv-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        /* Identified card info table */
+        .info-table {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 6px 10px;
+            font-size: 0.85rem;
+            margin-top: 10px;
+        }
+        .info-table dt {
+            color: var(--muted);
+        }
+        .info-table dd {
+            margin: 0;
+            font-weight: 700;
+            color: var(--ink);
+            text-align: right;
+        }
+
+        /* Bin Setup tab */
+        #panel-bins.active {
+            gap: 14px;
+        }
+        .bin-setup-actions {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .bin-setup-hint {
+            font-size: 0.85rem;
+            color: var(--muted);
+            text-align: center;
+            margin: -6px 0 0;
+        }
+        .bin-save-status {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .bin-save-status.error {
+            color: #c0392b;
+        }
+        .bin-editor {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            gap: 16px;
+        }
+        .bin-list {
+            width: 230px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            overflow-y: auto;
+            padding: 2px;
+        }
+        .bin-list-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+            text-align: left;
+            width: 100%;
+            font-family: inherit;
+            background: var(--card-bg);
+            border: 1.5px solid var(--border);
             border-radius: 8px;
-            width: 240px;
-            box-shadow: 2px 2px 8px rgba(0,0,0,0.05);
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+        .bin-list-item:hover {
+            border-color: #c7ced4;
+        }
+        .bin-list-item.active {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+        .bin-list-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--ink);
+        }
+        .bin-list-summary {
+            font-size: 0.75rem;
+            color: var(--muted);
+        }
+        .bin-detail {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+        .bin-fields {
+            display: none;
+            max-width: 420px;
+        }
+        .bin-fields.active {
+            display: block;
+        }
+        .bin-fields h3 {
+            font-size: 1rem;
+            margin-bottom: 10px;
         }
         input[type="text"],
         input[type="number"],
@@ -108,117 +370,166 @@
         input[type="checkbox"] {
             margin-right: 5px;
         }
-        .credits-badge {
-            background: linear-gradient(135deg, #1a7a3a, #27ae60);
-            color: white;
-            padding: 8px 20px;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            text-align: center;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-            width: 100%;
-            box-sizing: border-box;
+
+        @media (max-width: 900px) {
+            #panel-live.active {
+                display: flex;
+                flex-direction: column;
+                height: auto;
+                overflow-y: auto;
+            }
+            .bin-editor {
+                flex-direction: column;
+            }
+            .bin-list {
+                width: auto;
+                flex-direction: row;
+                flex-wrap: wrap;
+                max-height: none;
+            }
+            .bin-list-item {
+                width: auto;
+                flex: 1 1 130px;
+            }
         }
         @media (max-width: 600px) {
-            form {
-                padding: 12px;
-                border-radius: 0;
+            .app-shell {
+                padding: 10px 10px 16px;
             }
-            h1 {
-                font-size: 1.5rem;
-            }
-            .card-box {
-                width: 100%;
-                max-width: 320px;
-            }
-            .button-container button,
-            .button-container a button {
-                width: 100%;
-            }
-            .csv-controls {
-                flex-wrap: wrap;
-                justify-content: center;
+            .primary-actions {
+                flex-direction: column;
             }
         }
     </style>
 </head>
 <body>
-    <h1>Card Sorter</h1>
-    <form method="POST">
-        <div class="top-section">
-            <div class="image-box">
-                <h3>Card Scanned</h3>
-                <img id="cardScanned" src="/static/images/card_scanned.png" alt="Scanned Card Image">
+    <div class="app-shell">
+        <h1 class="page-title">Card Sorter</h1>
+
+        <div class="top-bar">
+            <div class="switcher-group" id="gameSwitcher">
+                <button type="button" class="pill game-pill active" id="gamePillMtg">Magic: The Gathering</button>
+                <button type="button" class="pill game-pill-add" id="gamePillAdd" disabled title="Coming soon">+ Add game</button>
             </div>
-            <div class="button-container">
-                <div id="creditsBadge" class="credits-badge" style="{{ '' if recognition_provider == 'do_serverless' else 'display: none;' }}">
-                    DO Serverless Credits Remaining: <strong><span id="creditsCount">{{ do_credits if do_credits is not none else '--' }}</span></strong>
-                </div>
-                <div>
-                    <button type="submit" name="start_sorting">Start Sorting</button>
-                    <label>
-                        <input type="checkbox" name="save_to_csv" value="1" {{ 'checked' if csv_enabled else '' }}>
-                        Save Card Info to CSV
-                    </label>
-                    <button type="submit" name="stop_sorting">Stop Sorting</button>
-                </div>
-                <div class="csv-controls">
-                    <a href="{{ url_for('download_csv') }}"><button type="button">Download CSV</button></a>
-                    <button type="submit" name="clear_csv">Clear CSV</button>
-                </div>
-                <div>
-                    <p>Lifetime Cards Processed: <strong><span id="moveCountDisplay">{{ moves }}</span></strong></p>
-                    <p>Monthly Cards Processed: <strong><span id="monthlyCountDisplay">{{ monthly_moves }}</span></strong></p>
-                    <p>Failed Reads: <strong><span id="failedReadsDisplay">0</span></strong></p>
-                    <button type="submit" name="clear_monthly_count">Reset Monthly Count</button>
-                    <button type="submit" name="clear_failed_count">Reset Failed Count</button>
-                </div>
-                <div>
-                    <button type="submit" name="submit_card">Set Bins</button>
-                    <button type="submit" name="reset_bins">Reset Bins to Default</button>
-                </div>
-                <div>
-                    <a href="{{ url_for('settings') }}"><button type="button">Settings</button></a>
-                    <a href="{{ url_for('failed_gallery') }}"><button type="button">View Failed Reads</button></a>
-                    <a href="{{ url_for('sensors_page') }}"><button type="button">Sensor Status</button></a>
-                    <a href="{{ url_for('logout') }}"><button type="button">Log Out</button></a>
-                </div>
-            </div>
-            <div class="image-box">
-                <h3>Card Identified</h3>
-                <img id="cardIdentified" src="{{ card_identified_url if card_identified_url else 'https://cards.scryfall.io/large/front/f/a/fae9abc7-ecd3-4042-a5b0-5f2b24491fa6.jpg?1562258009' }}" alt="Identified Card Image">
+            <div class="switcher-group" id="tabSwitcher">
+                <button type="button" class="pill tab-pill active" data-tab="live">Live Sorting</button>
+                <button type="button" class="pill tab-pill" data-tab="bins">Bin Setup</button>
             </div>
         </div>
 
-        <h2>Card Information</h2>
-            <p style="font-size: 0.9rem; color: #665; text-align: center; margin-top: -10px;">
-            Before Clicking The Start Sorting Button: Customize Each Card Box Below, Then Click Submit Cards
-            </p>
-        <div class="card-row">
-            {% for i in range(1, 6) %}
-            <div class="card-box">
-                <h3>Card {{ i }}</h3>
-                {% include 'card_form.html' %}
+        <form method="POST" class="panels">
+            <div class="panel active" id="panel-live">
+                <div class="live-col">
+                    <div class="card image-box">
+                        <h3 class="card-label">Card Scanned</h3>
+                        <img id="cardScanned" src="/static/images/card_scanned.png" alt="Scanned Card Image">
+                    </div>
+                </div>
+
+                <div class="live-col">
+                    <div class="card credits-tile" id="creditsBadge" style="{{ '' if recognition_provider == 'do_serverless' else 'display: none;' }}">
+                        <span class="stat-label">DO Serverless Credits Remaining</span>
+                        <span class="credits-number" id="creditsCount">{{ do_credits if do_credits is not none else '--' }}</span>
+                    </div>
+
+                    <div class="primary-actions">
+                        <button type="submit" name="start_sorting" class="btn btn-primary">Start Sorting</button>
+                        <button type="submit" name="stop_sorting" class="btn btn-secondary">Stop Sorting</button>
+                    </div>
+
+                    <div class="stat-row">
+                        <div class="stat-tile">
+                            <span class="stat-label">Lifetime Processed</span>
+                            <span class="stat-value" id="moveCountDisplay">{{ moves }}</span>
+                        </div>
+                        <div class="stat-tile">
+                            <span class="stat-label">Monthly Processed</span>
+                            <span class="stat-value" id="monthlyCountDisplay">{{ monthly_moves }}</span>
+                        </div>
+                        <div class="stat-tile">
+                            <span class="stat-label">Failed Reads</span>
+                            <span class="stat-value" id="failedReadsDisplay">0</span>
+                        </div>
+                    </div>
+
+                    <div class="card secondary-actions">
+                        <a href="{{ url_for('download_csv') }}"><button type="button" class="btn btn-tertiary">Download CSV</button></a>
+                        <a href="{{ url_for('settings') }}"><button type="button" class="btn btn-tertiary">Settings</button></a>
+                        <a href="{{ url_for('failed_gallery') }}"><button type="button" class="btn btn-tertiary">View Failed Reads</button></a>
+                        <a href="{{ url_for('sensors_page') }}"><button type="button" class="btn btn-tertiary">Sensor Status</button></a>
+                        <a href="{{ url_for('logout') }}"><button type="button" class="btn btn-tertiary">Log Out</button></a>
+                    </div>
+
+                    <div class="card csv-group">
+                        <label class="checkbox-row">
+                            <input type="checkbox" name="save_to_csv" value="1" {{ 'checked' if csv_enabled else '' }}>
+                            Save Card Info to CSV
+                        </label>
+                        <div class="csv-buttons">
+                            <button type="submit" name="clear_csv" class="btn btn-tertiary">Clear CSV</button>
+                            <button type="submit" name="clear_monthly_count" class="btn btn-tertiary">Reset Monthly Count</button>
+                            <button type="submit" name="clear_failed_count" class="btn btn-tertiary">Reset Failed Count</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="live-col">
+                    <div class="card image-box">
+                        <h3 class="card-label">Card Identified</h3>
+                        <img id="cardIdentified" src="{{ card_identified_url if card_identified_url else 'https://cards.scryfall.io/large/front/f/a/fae9abc7-ecd3-4042-a5b0-5f2b24491fa6.jpg?1562258009' }}" alt="Identified Card Image">
+                        <dl class="info-table">
+                            <dt>Name</dt>
+                            <dd id="identifiedCardName">{{ card_identified_name if card_identified_name else '--' }}</dd>
+                            <dt>Set</dt>
+                            <dd id="identifiedCardSet">{{ card_identified_set if card_identified_set else '--' }}</dd>
+                            <dt>Collector #</dt>
+                            <dd id="identifiedCardCollector">{{ card_identified_collector_number if card_identified_collector_number else '--' }}</dd>
+                        </dl>
+                    </div>
+                </div>
             </div>
-            {% endfor %}
-        </div>
-        <div class="card-row">
-            {% for i in range(6, 11) %}
-            <div class="card-box">
-                <h3>Card {{ i }}</h3>
-                {% include 'card_form.html' %}
+
+            <div class="panel" id="panel-bins">
+                <div class="bin-setup-actions">
+                    <button type="submit" name="reset_bins" class="btn btn-secondary">Reset Bins to Default</button>
+                    <span class="bin-save-status" id="binSaveStatus">All changes saved</span>
+                </div>
+                <p class="bin-setup-hint">Customize each card box below — changes save automatically.</p>
+                <div class="bin-editor">
+                    <div class="bin-list" id="binList">
+                        {% for i in range(1, 11) %}
+                        {% set crit = box_criteria.get(i, {}) %}
+                        {% set summary_parts = [] %}
+                        {% if crit.get('name') %}{% set _ = summary_parts.append(crit.get('name')) %}{% endif %}
+                        {% if crit.get('type') and crit.get('type') != '-None-' %}{% set _ = summary_parts.append(crit.get('type')) %}{% endif %}
+                        {% if crit.get('cmc') %}{% set _ = summary_parts.append('CMC ' ~ crit.get('cmc')) %}{% endif %}
+                        {% if crit.get('set_symbol') %}{% set _ = summary_parts.append(crit.get('set_symbol')|upper) %}{% endif %}
+                        {% if crit.get('colors') %}{% set _ = summary_parts.append(crit.get('colors')|join('')) %}{% endif %}
+                        <button type="button" class="bin-list-item {{ 'active' if i == 1 else '' }}" data-bin="{{ i }}">
+                            <span class="bin-list-title">Card Bin {{ i }}</span>
+                            <span class="bin-list-summary">{{ summary_parts|join(' · ') if summary_parts else 'No criteria set' }}</span>
+                        </button>
+                        {% endfor %}
+                    </div>
+                    <div class="bin-detail card">
+                        {% for i in range(1, 11) %}
+                        <div class="bin-fields {{ 'active' if i == 1 else '' }}" data-bin-fields="{{ i }}">
+                            <h3>Card Bin {{ i }}</h3>
+                            {% include 'card_form.html' %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
             </div>
-            {% endfor %}
-        </div>
-    </form>
+        </form>
+    </div>
 
     <script>
         let paused = false;
-        
+
         function updateCounts() {
             if (paused) return;
-        
+
             fetch("/get_move_count")
                 .then(response => response.json())
                 .then(data => {
@@ -238,18 +549,134 @@
                             badge.style.display = "none";
                         }
                     }
+                    const nameEl = document.getElementById("identifiedCardName");
+                    if (nameEl) nameEl.innerText = data.card_identified_name || "--";
+                    const setEl = document.getElementById("identifiedCardSet");
+                    if (setEl) setEl.innerText = data.card_identified_set || "--";
+                    const collectorEl = document.getElementById("identifiedCardCollector");
+                    if (collectorEl) collectorEl.innerText = data.card_identified_collector_number || "--";
                 })
                 .catch(error => console.error("Error fetching counts:", error));
         }
-    
+
         setInterval(updateCounts, 2000);
-    
+
         // Pause polling on button press
         document.querySelector("form").addEventListener("submit", function(e) {
             if (e.submitter && e.submitter.name === "clear_failed_count") {
                 paused = true;
                 setTimeout(() => paused = false, 3000);
             }
+        });
+
+        // Tab switcher (Live Sorting / Bin Setup) — pure show/hide, no reload.
+        document.querySelectorAll("#tabSwitcher .pill").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                document.querySelectorAll("#tabSwitcher .pill").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                const target = btn.getAttribute("data-tab");
+                document.getElementById("panel-live").classList.toggle("active", target === "live");
+                document.getElementById("panel-bins").classList.toggle("active", target === "bins");
+            });
+        });
+
+        // Game switcher — MTG is the only functional pill for now; "+ Add game" is an inert placeholder.
+        document.getElementById("gamePillAdd").addEventListener("click", function (e) {
+            e.preventDefault();
+        });
+
+        // Bin list — selecting a bin shows its fields; all 10 field sets stay in the DOM.
+        document.querySelectorAll("#binList .bin-list-item").forEach(function (item) {
+            item.addEventListener("click", function () {
+                const bin = item.getAttribute("data-bin");
+                flushAllBinSaves();
+                document.querySelectorAll("#binList .bin-list-item").forEach(b => b.classList.remove("active"));
+                item.classList.add("active");
+                document.querySelectorAll(".bin-fields").forEach(function (fields) {
+                    fields.classList.toggle("active", fields.getAttribute("data-bin-fields") === bin);
+                });
+            });
+        });
+
+        // Bin Setup autosave — each field POSTs to /update_bin_criteria on its own,
+        // so no "Set Bins" submit button is needed.
+        const binSaveTimers = {};
+        const binSaveStatus = document.getElementById("binSaveStatus");
+
+        function setSaveStatus(text, isError) {
+            if (!binSaveStatus) return;
+            binSaveStatus.textContent = text;
+            binSaveStatus.classList.toggle("error", !!isError);
+        }
+
+        function updateBinSummary(binIndex, crit) {
+            const summaryEl = document.querySelector('.bin-list-item[data-bin="' + binIndex + '"] .bin-list-summary');
+            if (!summaryEl || !crit) return;
+            const parts = [];
+            if (crit.name) parts.push(crit.name);
+            if (crit.type && crit.type !== "-None-") parts.push(crit.type);
+            if (crit.cmc) parts.push("CMC " + crit.cmc);
+            if (crit.set_symbol) parts.push(crit.set_symbol.toUpperCase());
+            if (crit.colors && crit.colors.length) parts.push(crit.colors.join(""));
+            summaryEl.textContent = parts.length ? parts.join(" · ") : "No criteria set";
+        }
+
+        function saveBin(binIndex) {
+            const container = document.querySelector('.bin-fields[data-bin-fields="' + binIndex + '"]');
+            if (!container) return;
+            const data = new FormData();
+            data.append("bin_index", binIndex);
+            container.querySelectorAll("input, select").forEach(function (el) {
+                if (el.type === "checkbox") {
+                    if (el.checked) data.append(el.name, el.value || "1");
+                } else {
+                    data.append(el.name, el.value);
+                }
+            });
+            setSaveStatus("Saving…");
+            fetch("/update_bin_criteria", { method: "POST", body: data })
+                .then(response => response.json())
+                .then(function (result) {
+                    if (!result.success) throw new Error("save failed");
+                    setSaveStatus("All changes saved");
+                    updateBinSummary(binIndex, result.criteria);
+                })
+                .catch(function () {
+                    setSaveStatus("Failed to save — retrying", true);
+                    setTimeout(function () { saveBin(binIndex); }, 2000);
+                });
+        }
+
+        function scheduleBinSave(binIndex) {
+            setSaveStatus("Saving…");
+            clearTimeout(binSaveTimers[binIndex]);
+            binSaveTimers[binIndex] = setTimeout(function () {
+                delete binSaveTimers[binIndex];
+                saveBin(binIndex);
+            }, 600);
+        }
+
+        function flushBinSave(binIndex) {
+            if (binSaveTimers[binIndex]) {
+                clearTimeout(binSaveTimers[binIndex]);
+                delete binSaveTimers[binIndex];
+                saveBin(binIndex);
+            }
+        }
+
+        function flushAllBinSaves() {
+            Object.keys(binSaveTimers).forEach(flushBinSave);
+        }
+
+        document.querySelectorAll(".bin-fields").forEach(function (fieldset) {
+            const binIndex = fieldset.getAttribute("data-bin-fields");
+            fieldset.querySelectorAll('input[type="text"], input[type="number"]').forEach(function (el) {
+                el.addEventListener("input", function () { scheduleBinSave(binIndex); });
+                el.addEventListener("blur", function () { flushBinSave(binIndex); });
+            });
+            fieldset.querySelectorAll('select, input[type="checkbox"]').forEach(function (el) {
+                el.addEventListener("change", function () { saveBin(binIndex); });
+            });
         });
     </script>
 

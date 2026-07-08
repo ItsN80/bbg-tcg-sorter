@@ -69,6 +69,9 @@ if not os.path.isfile(BIN_INFO_FILE):
         
 # Global variable for the identified card URL (from API)
 card_identified_url = ""
+card_identified_name = ""
+card_identified_set = ""
+card_identified_collector_number = ""
 do_credits = None  # Cached remaining_credits from DO Serverless backend
 
 # Initialize pigpio globally
@@ -265,6 +268,21 @@ def default_box_criteria():
         for i in range(1, 11)
     }
 
+def normalize_criteria_value(raw_value):
+    if not isinstance(raw_value, dict):
+        raw_value = {}
+    colors_raw = raw_value.get("colors", [])
+    colors = []
+    if isinstance(colors_raw, list):
+        colors = [c for c in colors_raw if c in ["W", "U", "B", "R", "G", "C"]]
+    return {
+        "name": str(raw_value.get("name", "")).strip(),
+        "type": str(raw_value.get("type", "")).strip(),
+        "colors": colors,
+        "cmc": str(raw_value.get("cmc", "")).strip(),
+        "set_symbol": str(raw_value.get("set_symbol", "")).strip(),
+    }
+
 def normalize_box_criteria(raw):
     normalized = default_box_criteria()
     if not isinstance(raw, dict):
@@ -279,18 +297,7 @@ def normalize_box_criteria(raw):
         if box_num < 1 or box_num > 10 or not isinstance(raw_value, dict):
             continue
 
-        colors_raw = raw_value.get("colors", [])
-        colors = []
-        if isinstance(colors_raw, list):
-            colors = [c for c in colors_raw if c in ["W", "U", "B", "R", "G", "C"]]
-
-        normalized[box_num] = {
-            "name": str(raw_value.get("name", "")).strip(),
-            "type": str(raw_value.get("type", "")).strip(),
-            "colors": colors,
-            "cmc": str(raw_value.get("cmc", "")).strip(),
-            "set_symbol": str(raw_value.get("set_symbol", "")).strip(),
-        }
+        normalized[box_num] = normalize_criteria_value(raw_value)
 
     return normalized
 
@@ -475,6 +482,7 @@ def send_shutdown_summary_email(config):
 
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count, do_credits
+    global card_identified_name, card_identified_set, card_identified_collector_number
     led_controller.set_mode("sorting")
     _led_state = led_controller.get_state()
     _idle_color = (
@@ -501,7 +509,25 @@ def sorting_loop():
                     print("Feed failed again (return code: {}), stopping sorting.".format(feed_result.returncode))
                     sorting_active = False
                     break
-            
+
+            servo_ctrl = ["python3", os.path.join(BASE_DIR, "scripts", "servo_controller.py")]
+
+            if not sorting_active:
+                # Stop was requested while this card was being physically fed. It's
+                # already in the machine, so skip the slow OCR/Scryfall read and just
+                # release it to the failsafe tray instead of running a full cycle.
+                print("Stop requested during feed. Releasing in-flight card to bin 10 without reading.")
+                subprocess.run(servo_ctrl + ["card_servo", "open"], check=True, timeout=10)
+                time.sleep(2)
+                subprocess.run(servo_ctrl + ["card_servo", "close"], check=True, timeout=10)
+                update_images({})
+                with stats_lock:
+                    move_count += 1
+                    monthly_move_count += 1
+                save_move_count(move_count)
+                save_monthly_move_count(monthly_move_count)
+                break
+
             # Read the card info.
             read_env = os.environ.copy()
             read_env["REQUIRE_SET_AND_COLLECTOR"] = "1" if any_box_has_set_symbol() else "0"
@@ -580,6 +606,12 @@ def sorting_loop():
                     with stats_lock:
                         card_identified_url = card["card_identified_url"]
                     print("Updated card URL:", card["card_identified_url"])
+
+                # Update the global identified-card name/set/collector number.
+                with stats_lock:
+                    card_identified_name = card.get("name", "")
+                    card_identified_set = card.get("set_symbol", "")
+                    card_identified_collector_number = card.get("collector_number", "")
                 
                 # Determine the correct box.
                 selected_box = None
@@ -597,7 +629,6 @@ def sorting_loop():
             print(f"Selected Box: {selected_box} for card: {card}")
 
             # Process the card.
-            servo_ctrl = ["python3", os.path.join(BASE_DIR, "scripts", "servo_controller.py")]
             if selected_box == 10:
                 subprocess.run(servo_ctrl + ["card_servo", "open"], check=True, timeout=10)
                 time.sleep(2)
@@ -693,6 +724,7 @@ def logout():
 def index():
     global move_count, monthly_move_count, sorting_active
     global sorting_thread, box_criteria, csv_enabled, card_identified_url
+    global card_identified_name, card_identified_set, card_identified_collector_number
 
     error = None
     cards = {}
@@ -717,34 +749,10 @@ def index():
             sorting_active = False
             led_controller.off()
             if sorting_thread:
-                sorting_thread.join(timeout=5)
+                sorting_thread.join(timeout=15)
+                if sorting_thread.is_alive():
+                    print("Warning: sorting thread did not stop within 15s of Stop Sorting request.")
                 sorting_thread = None
-
-        elif "submit_card" in request.form:
-            # (Save box criteria for each of the 10 trays)
-            new_criteria = {}
-            for i in range(1, 11):
-                crit = {}
-                crit["name"] = request.form.get(f"name{i}", "").strip()
-                crit["type"] = request.form.get(f"type{i}", "").strip()
-                colors = []
-                for color in ["W", "U", "B", "R", "G", "C"]:
-                    if request.form.get(f"{color}{i}"):
-                        colors.append(color)
-                crit["colors"] = colors
-                crit["cmc"] = request.form.get(f"cmc{i}", "").strip()
-                crit["set_symbol"] = request.form.get(f"set_symbol{i}", "").strip()
-                new_criteria[i] = crit
-            with lock:
-                box_criteria = normalize_box_criteria(new_criteria)
-                if not write_bin_info(box_criteria):
-                    print("Failed to persist bin info.")
-            print("Submitted Card Criteria:")
-            print("{")
-            for key, criteria in new_criteria.items():
-                # Use separators to keep the inner dictionary on one line.
-                print(f'  "{key}": {json.dumps(criteria, separators=(", ", ": "))},')
-            print("}")
 
         elif "reset_bins" in request.form:
             with lock:
@@ -800,6 +808,9 @@ def index():
         _monthly = monthly_move_count
         _url = card_identified_url
         _credits = do_credits
+        _card_name = card_identified_name
+        _card_set = card_identified_set
+        _card_collector = card_identified_collector_number
     with lock:
         _sorting_active = sorting_active
         _box_criteria = box_criteria
@@ -816,6 +827,9 @@ def index():
         card_identified_url=_url,
         recognition_provider=_live_config.get("recognition_provider", "aws"),
         do_credits=_credits,
+        card_identified_name=_card_name,
+        card_identified_set=_card_set,
+        card_identified_collector_number=_card_collector,
     )
 
 @app.route("/get_move_count", methods=["GET"])
@@ -826,7 +840,46 @@ def get_move_count_route():
         _failed = failed_read_count
         _url = card_identified_url
         _credits = do_credits
-    return jsonify({"moves": _moves, "monthly_moves": _monthly, "failed_reads": _failed, "card_identified_url": _url, "card_scanned_url": "/static/images/card_scanned.png", "credits": _credits})
+        _card_name = card_identified_name
+        _card_set = card_identified_set
+        _card_collector = card_identified_collector_number
+    return jsonify({
+        "moves": _moves,
+        "monthly_moves": _monthly,
+        "failed_reads": _failed,
+        "card_identified_url": _url,
+        "card_scanned_url": "/static/images/card_scanned.png",
+        "credits": _credits,
+        "card_identified_name": _card_name,
+        "card_identified_set": _card_set,
+        "card_identified_collector_number": _card_collector,
+    })
+
+@app.route("/update_bin_criteria", methods=["POST"])
+def update_bin_criteria():
+    global box_criteria
+
+    try:
+        bin_index = int(request.form.get("bin_index", ""))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "invalid bin_index"}), 400
+    if bin_index < 1 or bin_index > 10:
+        return jsonify({"success": False, "error": "bin_index out of range"}), 400
+
+    raw_crit = {
+        "name": request.form.get(f"name{bin_index}", ""),
+        "type": request.form.get(f"type{bin_index}", ""),
+        "colors": [c for c in ["W", "U", "B", "R", "G", "C"] if request.form.get(f"{c}{bin_index}")],
+        "cmc": request.form.get(f"cmc{bin_index}", ""),
+        "set_symbol": request.form.get(f"set_symbol{bin_index}", ""),
+    }
+
+    with lock:
+        box_criteria[bin_index] = normalize_criteria_value(raw_crit)
+        saved = write_bin_info(box_criteria)
+        criteria_snapshot = box_criteria[bin_index]
+
+    return jsonify({"success": saved, "bin_index": bin_index, "criteria": criteria_snapshot})
 
 @app.route("/download_csv", methods=["GET"])
 def download_csv():

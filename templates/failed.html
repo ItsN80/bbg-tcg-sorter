@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Failed Reads</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <style>
@@ -10,6 +11,7 @@
             background-color: #f9f9fb;
             padding: 20px;
             color: #333;
+            box-sizing: border-box;
         }
         h1 {
             text-align: center;
@@ -17,6 +19,7 @@
         }
         .failed-pair {
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-start;
             margin-bottom: 30px;
             gap: 20px;
@@ -53,6 +56,15 @@
             font-size: 0.9rem;
             color: #555;
             margin-bottom: 10px;
+        }
+        @media (max-width: 420px) {
+            .details {
+                min-width: 0;
+                width: 100%;
+            }
+            .failed-pair img {
+                max-width: 100%;
+            }
         }
     </style>
 </head>

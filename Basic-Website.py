@@ -1146,7 +1146,11 @@ def sensors_page():
 
 
 if __name__ == "__main__":
-    # Disable the Werkzeug reloader so only one process drives pigpio/LEDs.
-    # The debug reloader spawns an extra process, which can cause concurrent
-    # WS2812 writes and visual corruption.
-    app.run(debug=False, use_reloader=False, host='0.0.0.0')
+    # Served via waitress (multi-threaded, single process) instead of the
+    # Flask/Werkzeug dev server, which handles only one request at a time and
+    # would stall every client (including the 2s status-polling loop) while a
+    # single slow request — a servo test, camera test, or git pull — runs.
+    # Single process is kept deliberately so only one thread ever drives
+    # pigpio/LEDs at a time internally (protected by the existing locks).
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=5000, threads=8)

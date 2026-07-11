@@ -9,8 +9,8 @@ DEFAULT_LED_CONFIG = {
     "enabled": True,
     "gpio": 12,
     "count": 8,
-    "brightness": 0.35,
-    "color": {"r": 0, "g": 140, "b": 255},
+    "brightness": 0.6,
+    "color": {"r": 255, "g": 240, "b": 184},
 }
 
 

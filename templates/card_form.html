@@ -1,18 +1,16 @@
 <label for="name{{ i }}">Name (e.g., a or a-c):</label>
 <input type="text" id="name{{ i }}" name="name{{ i }}" value="{{ box_criteria.get(i, {}).get('name', '') }}">
 
-<label for="type{{ i }}">Type:</label>
-<select id="type{{ i }}" name="type{{ i }}">
-    <option value="-None-" {% if box_criteria.get(i, {}).get('type', '') == "-None-" %}selected{% endif %}>-None-</option>
-    <option value="Instant" {% if box_criteria.get(i, {}).get('type', '') == "Instant" %}selected{% endif %}>Instant</option>
-    <option value="Sorcery" {% if box_criteria.get(i, {}).get('type', '') == "Sorcery" %}selected{% endif %}>Sorcery</option>
-    <option value="Creature" {% if box_criteria.get(i, {}).get('type', '') == "Creature" %}selected{% endif %}>Creature</option>
-    <option value="Legendary Creature" {% if box_criteria.get(i, {}).get('type', '') == "Legendary Creature" %}selected{% endif %}>Legendary Creature</option>
-    <option value="Artifact" {% if box_criteria.get(i, {}).get('type', '') == "Artifact" %}selected{% endif %}>Artifact</option>
-    <option value="Enchantment" {% if box_criteria.get(i, {}).get('type', '') == "Enchantment" %}selected{% endif %}>Enchantment</option>
-    <option value="Land" {% if box_criteria.get(i, {}).get('type', '') == "Land" %}selected{% endif %}>Land</option>
-    <option value="Token" {% if box_criteria.get(i, {}).get('type', '') == "Token" %}selected{% endif %}>Token</option>
-</select>
+<label>Type:</label>
+<div class="type-tag-grid">
+{% set type_tags = box_criteria.get(i, {}).get('type_tags', []) %}
+{% for tag in ["Legendary", "Snow", "Token", "Basic", "Artifact", "Enchantment", "Creature", "Instant", "Sorcery", "Land", "Planeswalker", "Battle"] %}
+    <label class="type-tag-checkbox">
+        <input type="checkbox" id="type_{{ tag }}{{ i }}" name="type_{{ tag }}{{ i }}" {% if tag in type_tags %}checked{% endif %}>
+        {{ tag }}
+    </label>
+{% endfor %}
+</div>
 
 <label>Colors:</label>
 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px;">

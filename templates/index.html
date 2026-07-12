@@ -402,6 +402,20 @@
             margin-right: 5px;
         }
 
+        .type-tag-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px 10px;
+            margin-bottom: 10px;
+        }
+        .type-tag-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.85rem;
+            font-weight: 400;
+        }
+
         @media (max-width: 900px) {
             #panel-live.active {
                 display: flex;
@@ -547,7 +561,7 @@
                         {% set crit = box_criteria.get(i, {}) %}
                         {% set summary_parts = [] %}
                         {% if crit.get('name') %}{% set _ = summary_parts.append(crit.get('name')) %}{% endif %}
-                        {% if crit.get('type') and crit.get('type') != '-None-' %}{% set _ = summary_parts.append(crit.get('type')) %}{% endif %}
+                        {% if crit.get('type_tags') %}{% set _ = summary_parts.append(crit.get('type_tags')|join(' ')) %}{% endif %}
                         {% if crit.get('cmc') %}{% set _ = summary_parts.append('CMC ' ~ crit.get('cmc')) %}{% endif %}
                         {% if crit.get('set_symbol') %}{% set _ = summary_parts.append(crit.get('set_symbol')|upper) %}{% endif %}
                         {% if crit.get('colors') %}{% set _ = summary_parts.append(crit.get('colors')|join('')) %}{% endif %}
@@ -666,7 +680,7 @@
             if (!summaryEl || !crit) return;
             const parts = [];
             if (crit.name) parts.push(crit.name);
-            if (crit.type && crit.type !== "-None-") parts.push(crit.type);
+            if (crit.type_tags && crit.type_tags.length) parts.push(crit.type_tags.join(" "));
             if (crit.cmc) parts.push("CMC " + crit.cmc);
             if (crit.set_symbol) parts.push(crit.set_symbol.toUpperCase());
             if (crit.colors && crit.colors.length) parts.push(crit.colors.join(""));

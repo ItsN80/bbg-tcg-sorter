@@ -263,9 +263,13 @@ def shutdown_led_controller():
     except Exception:
         pass
 
+TYPE_MODIFIER_TAGS = ["Legendary", "Snow", "Token", "Basic"]
+TYPE_BASE_TAGS = ["Artifact", "Enchantment", "Creature", "Instant", "Sorcery", "Land", "Planeswalker", "Battle"]
+ALL_TYPE_TAGS = TYPE_MODIFIER_TAGS + TYPE_BASE_TAGS
+
 def default_box_criteria():
     return {
-        i: {"name": "", "type": "", "colors": [], "cmc": "", "set_symbol": ""}
+        i: {"name": "", "type_tags": [], "colors": [], "cmc": "", "set_symbol": ""}
         for i in range(1, 11)
     }
 
@@ -276,9 +280,20 @@ def normalize_criteria_value(raw_value):
     colors = []
     if isinstance(colors_raw, list):
         colors = [c for c in colors_raw if c in ["W", "U", "B", "R", "G", "C"]]
+
+    type_tags_raw = raw_value.get("type_tags")
+    if type_tags_raw is None:
+        # Legacy migration: bins saved before the type-tag checkboxes used a single
+        # combined string (e.g. "Legendary Creature") — split it into recognized tags.
+        legacy_type = str(raw_value.get("type", "")).strip()
+        type_tags_raw = legacy_type.split()
+    if not isinstance(type_tags_raw, list):
+        type_tags_raw = []
+    type_tags = [t for t in ALL_TYPE_TAGS if t in type_tags_raw]
+
     return {
         "name": str(raw_value.get("name", "")).strip(),
-        "type": str(raw_value.get("type", "")).strip(),
+        "type_tags": type_tags,
         "colors": colors,
         "cmc": str(raw_value.get("cmc", "")).strip(),
         "set_symbol": str(raw_value.get("set_symbol", "")).strip(),
@@ -326,10 +341,10 @@ with lock:
 
 def matches_criteria(card, criteria):
     # If no criteria specified, do not consider it a match.
-    if not (criteria.get("name") or 
-            (criteria.get("type") and criteria.get("type").lower() != "-none-") or 
-            criteria.get("cmc") or 
-            criteria.get("set_symbol") or 
+    if not (criteria.get("name") or
+            criteria.get("type_tags") or
+            criteria.get("cmc") or
+            criteria.get("set_symbol") or
             criteria.get("colors")):
         return False
 
@@ -353,9 +368,11 @@ def matches_criteria(card, criteria):
             if name_crit.lower() not in card_name.lower():
                 return False
 
-    if criteria.get("type") and criteria["type"].lower() != "-none-":
-        if criteria["type"].lower() not in card.get("type", "").lower():
-            return False
+    if criteria.get("type_tags"):
+        card_type_line = card.get("type", "").lower()
+        for tag in criteria["type_tags"]:
+            if tag.lower() not in card_type_line:
+                return False
 
     if criteria.get("cmc"):
         try:
@@ -882,7 +899,7 @@ def update_bin_criteria():
 
     raw_crit = {
         "name": request.form.get(f"name{bin_index}", ""),
-        "type": request.form.get(f"type{bin_index}", ""),
+        "type_tags": [t for t in ALL_TYPE_TAGS if request.form.get(f"type_{t}{bin_index}")],
         "colors": [c for c in ["W", "U", "B", "R", "G", "C"] if request.form.get(f"{c}{bin_index}")],
         "cmc": request.form.get(f"cmc{bin_index}", ""),
         "set_symbol": request.form.get(f"set_symbol{bin_index}", ""),

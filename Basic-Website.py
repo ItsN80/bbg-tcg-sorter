@@ -73,6 +73,7 @@ card_identified_name = ""
 card_identified_set = ""
 card_identified_collector_number = ""
 do_credits = None  # Cached remaining_credits from DO Serverless backend
+bin_counts = {i: 0 for i in range(1, 11)}  # In-memory only; resets on restart.
 
 # Initialize pigpio globally
 pi = pigpio.pi()
@@ -482,7 +483,7 @@ def send_shutdown_summary_email(config):
 
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count, do_credits
-    global card_identified_name, card_identified_set, card_identified_collector_number
+    global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts
     led_controller.set_mode("sorting")
     _led_state = led_controller.get_state()
     _idle_color = (
@@ -498,6 +499,7 @@ def sorting_loop():
             with stats_lock:
                 do_credits = _bal
     while sorting_active:
+        selected_box = None
         try:
             # Feed a new card.
             feed_result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")], capture_output=True, text=True, timeout=90)
@@ -524,6 +526,7 @@ def sorting_loop():
                 with stats_lock:
                     move_count += 1
                     monthly_move_count += 1
+                    bin_counts[10] += 1
                 save_move_count(move_count)
                 save_monthly_move_count(monthly_move_count)
                 break
@@ -658,6 +661,8 @@ def sorting_loop():
         with stats_lock:
             move_count += 1
             monthly_move_count += 1
+            if selected_box is not None:
+                bin_counts[selected_box] += 1
         save_move_count(move_count)
         save_monthly_move_count(monthly_move_count)
         if _is_do:
@@ -724,7 +729,7 @@ def logout():
 def index():
     global move_count, monthly_move_count, sorting_active
     global sorting_thread, box_criteria, csv_enabled, card_identified_url
-    global card_identified_name, card_identified_set, card_identified_collector_number
+    global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts
 
     error = None
     cards = {}
@@ -801,6 +806,11 @@ def index():
 
             print("Failed read count reset and failed images deleted.")
 
+        elif "clear_bin_counts" in request.form:
+            with stats_lock:
+                bin_counts = {i: 0 for i in range(1, 11)}
+            print("Bin counters reset to 0.")
+
 
     # GET or POST: Always render the index
     with stats_lock:
@@ -811,6 +821,7 @@ def index():
         _card_name = card_identified_name
         _card_set = card_identified_set
         _card_collector = card_identified_collector_number
+        _bin_counts = dict(bin_counts)
     with lock:
         _sorting_active = sorting_active
         _box_criteria = box_criteria
@@ -830,6 +841,7 @@ def index():
         card_identified_name=_card_name,
         card_identified_set=_card_set,
         card_identified_collector_number=_card_collector,
+        bin_counts=_bin_counts,
     )
 
 @app.route("/get_move_count", methods=["GET"])
@@ -843,6 +855,7 @@ def get_move_count_route():
         _card_name = card_identified_name
         _card_set = card_identified_set
         _card_collector = card_identified_collector_number
+        _bin_counts = dict(bin_counts)
     return jsonify({
         "moves": _moves,
         "monthly_moves": _monthly,
@@ -853,6 +866,7 @@ def get_move_count_route():
         "card_identified_name": _card_name,
         "card_identified_set": _card_set,
         "card_identified_collector_number": _card_collector,
+        "bin_counts": _bin_counts,
     })
 
 @app.route("/update_bin_criteria", methods=["POST"])

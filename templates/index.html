@@ -251,6 +251,37 @@
             gap: 8px;
         }
 
+        /* Cards-per-bin counters */
+        .bin-count-card {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .bin-count-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .bin-count-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+        }
+        .bin-count-tile {
+            background: var(--tile-bg);
+            border-radius: 6px;
+            padding: 6px 2px;
+            text-align: center;
+        }
+        .bin-count-tile .stat-label {
+            font-size: 0.62rem;
+            margin-bottom: 2px;
+        }
+        .bin-count-tile .stat-value {
+            font-size: 1rem;
+        }
+
         /* Identified card info table */
         .info-table {
             display: grid;
@@ -471,6 +502,21 @@
                             <button type="submit" name="clear_failed_count" class="btn btn-tertiary">Reset Failed Count</button>
                         </div>
                     </div>
+
+                    <div class="card bin-count-card">
+                        <div class="bin-count-header">
+                            <span class="card-label" style="margin-bottom: 0;">Cards Per Bin</span>
+                            <button type="submit" name="clear_bin_counts" class="btn btn-tertiary">Clear Bin Counts</button>
+                        </div>
+                        <div class="bin-count-grid">
+                            {% for i in range(1, 11) %}
+                            <div class="bin-count-tile">
+                                <span class="stat-label">Bin {{ i }}</span>
+                                <span class="stat-value" id="binCount{{ i }}">{{ bin_counts.get(i, 0) }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
                 </div>
 
                 <div class="live-col">
@@ -555,6 +601,12 @@
                     if (setEl) setEl.innerText = data.card_identified_set || "--";
                     const collectorEl = document.getElementById("identifiedCardCollector");
                     if (collectorEl) collectorEl.innerText = data.card_identified_collector_number || "--";
+                    if (data.bin_counts) {
+                        for (let i = 1; i <= 10; i++) {
+                            const binEl = document.getElementById("binCount" + i);
+                            if (binEl) binEl.innerText = data.bin_counts[i] ?? 0;
+                        }
+                    }
                 })
                 .catch(error => console.error("Error fetching counts:", error));
         }

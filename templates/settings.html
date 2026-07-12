@@ -263,13 +263,13 @@
         }
 
         function testFlapper(flapperName) {
-            runScript('scripts/servo_controller.py', `${flapperName} open`);
-            setTimeout(() => runScript('scripts/servo_controller.py', `${flapperName} close`), 2000);
+            runScript('servo_controller.py', `${flapperName} open`);
+            setTimeout(() => runScript('servo_controller.py', `${flapperName} close`), 2000);
         }
 
         function testCardServo() {
-            runScript('scripts/servo_controller.py', 'card_servo open');
-            setTimeout(() => runScript('scripts/servo_controller.py', 'card_servo close'), 2000);
+            runScript('servo_controller.py', 'card_servo open');
+            setTimeout(() => runScript('servo_controller.py', 'card_servo close'), 2000);
         }
 
         function confirmAction(actionType) {

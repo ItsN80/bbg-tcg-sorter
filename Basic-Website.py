@@ -744,7 +744,7 @@ def logout():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global move_count, monthly_move_count, sorting_active
+    global move_count, monthly_move_count, sorting_active, failed_read_count
     global sorting_thread, box_criteria, csv_enabled, card_identified_url
     global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts
 

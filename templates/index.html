@@ -72,6 +72,7 @@
             background: var(--tile-bg);
             color: var(--muted);
             font-family: inherit;
+            text-decoration: none;
             transition: background-color 0.15s, color 0.15s, border-color 0.15s;
         }
         .pill.game-pill.active {
@@ -459,6 +460,7 @@
             <div class="switcher-group" id="tabSwitcher">
                 <button type="button" class="pill tab-pill active" data-tab="live">Live Sorting</button>
                 <button type="button" class="pill tab-pill" data-tab="bins">Bin Setup</button>
+                <a href="{{ url_for('settings') }}" class="pill tab-pill">Settings</a>
             </div>
         </div>
 
@@ -499,7 +501,6 @@
 
                     <div class="card secondary-actions">
                         <a href="{{ url_for('download_csv') }}"><button type="button" class="btn btn-tertiary">Download CSV</button></a>
-                        <a href="{{ url_for('settings') }}"><button type="button" class="btn btn-tertiary">Settings</button></a>
                         <a href="{{ url_for('failed_gallery') }}"><button type="button" class="btn btn-tertiary">View Failed Reads</button></a>
                         <a href="{{ url_for('sensors_page') }}"><button type="button" class="btn btn-tertiary">Sensor Status</button></a>
                         <a href="{{ url_for('logout') }}"><button type="button" class="btn btn-tertiary">Log Out</button></a>
@@ -636,9 +637,11 @@
         });
 
         // Tab switcher (Live Sorting / Bin Setup) — pure show/hide, no reload.
-        document.querySelectorAll("#tabSwitcher .pill").forEach(function (btn) {
+        // Scoped to [data-tab] so the Settings pill (a plain navigation link
+        // sharing the same row) isn't treated as a toggleable tab.
+        document.querySelectorAll("#tabSwitcher .pill[data-tab]").forEach(function (btn) {
             btn.addEventListener("click", function () {
-                document.querySelectorAll("#tabSwitcher .pill").forEach(b => b.classList.remove("active"));
+                document.querySelectorAll("#tabSwitcher .pill[data-tab]").forEach(b => b.classList.remove("active"));
                 btn.classList.add("active");
                 const target = btn.getAttribute("data-tab");
                 document.getElementById("panel-live").classList.toggle("active", target === "live");
@@ -650,6 +653,13 @@
         document.getElementById("gamePillAdd").addEventListener("click", function (e) {
             e.preventDefault();
         });
+
+        // Deep link support (e.g. the "Bin Setup" pill on the Settings page links
+        // here with ?tab=bins) — land on that tab instead of the Live Sorting default.
+        if (new URLSearchParams(window.location.search).get("tab") === "bins") {
+            const binsPill = document.querySelector('#tabSwitcher .pill[data-tab="bins"]');
+            if (binsPill) binsPill.click();
+        }
 
         // Bin list — selecting a bin shows its fields; all 10 field sets stay in the DOM.
         document.querySelectorAll("#binList .bin-list-item").forEach(function (item) {

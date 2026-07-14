@@ -184,7 +184,81 @@
                 <input type="password" id="ollama_api_key" name="ollama_api_key"
                     value="{{ (config.ollama.api_key if config.ollama is defined and config.ollama.api_key is defined else '') }}"
                     placeholder="Leave blank if not required">
+
+                <label for="ollama_timeout_seconds">Request Timeout (seconds):</label>
+                <input type="number" id="ollama_timeout_seconds" name="ollama_timeout_seconds" min="1"
+                    value="{{ config.get('ollama', {}).get('timeout_seconds', 60) }}">
+
+                <label><input type="checkbox" id="ollama_debug" name="ollama_debug" {% if config.get('ollama', {}).get('debug') %}checked{% endif %}> Verbose Debug Logging</label>
+
+                <p style="font-size: 0.85rem; color: #666; margin-top: 15px;">
+                    Note: the prompt and parameters below only take effect for a
+                    <strong>direct Ollama</strong> server. DO Serverless deployments
+                    (like the bundled quota_service.py) intentionally use their own
+                    server-side prompt for consistency/security, and ignore these.
+                </p>
+
+                <label for="ollama_prompt">Recognition Prompt:</label>
+                <textarea id="ollama_prompt" name="ollama_prompt" rows="6" style="width:100%; padding:8px; margin-top:5px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; font-family: monospace; font-size: 0.85rem;"
+                    placeholder="Leave blank to use the built-in default prompt.">{{ config.get('ollama', {}).get('prompt', '') }}</textarea>
+
+                <div class="inline-row" style="margin-top: 10px;">
+                    <div>
+                        <label for="ollama_min_confidence">Min Confidence:</label>
+                        <input type="number" id="ollama_min_confidence" name="ollama_min_confidence" step="0.01" min="0" max="1" style="width:90px;"
+                            value="{{ config.get('ollama', {}).get('min_confidence', 0.80) }}">
+                    </div>
+                    <div>
+                        <label for="ollama_temperature">Temperature:</label>
+                        <input type="number" id="ollama_temperature" name="ollama_temperature" step="0.01" min="0" style="width:90px;"
+                            value="{{ config.get('ollama', {}).get('temperature', 0.0) }}">
+                    </div>
+                    <div>
+                        <label for="ollama_top_p">Top P:</label>
+                        <input type="number" id="ollama_top_p" name="ollama_top_p" step="0.01" min="0" max="1" style="width:90px;"
+                            value="{{ config.get('ollama', {}).get('top_p', 0.1) }}">
+                    </div>
+                    <div>
+                        <label for="ollama_top_k">Top K:</label>
+                        <input type="number" id="ollama_top_k" name="ollama_top_k" step="1" min="0" style="width:90px;"
+                            value="{{ config.get('ollama', {}).get('top_k', 20) }}">
+                    </div>
+                    <div>
+                        <label for="ollama_repeat_penalty">Repeat Penalty:</label>
+                        <input type="number" id="ollama_repeat_penalty" name="ollama_repeat_penalty" step="0.01" min="0" style="width:90px;"
+                            value="{{ config.get('ollama', {}).get('repeat_penalty', 1.2) }}">
+                    </div>
+                    <div>
+                        <label for="ollama_num_predict">Num Predict:</label>
+                        <input type="number" id="ollama_num_predict" name="ollama_num_predict" step="1" min="1" style="width:90px;"
+                            value="{{ config.get('ollama', {}).get('num_predict', 120) }}">
+                    </div>
+                    <div>
+                        <label for="ollama_seed">Seed:</label>
+                        <input type="number" id="ollama_seed" name="ollama_seed" step="1" style="width:90px;"
+                            value="{{ config.get('ollama', {}).get('seed', 42) }}">
+                    </div>
+                </div>
+
+                <div class="inline-row" style="margin-top: 10px;">
+                    <button type="button" id="test_recognition_btn">Test Recognition</button>
+                </div>
+                <pre id="test_recognition_result" style="white-space: pre-wrap; background: #f7f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 0.85rem; display: none;"></pre>
             </div>
+        </div>
+
+        <div class="section">
+            <h2>Successful Scan Saving</h2>
+            <label><input type="checkbox" id="save_scans_enabled" name="save_scans_enabled" {% if config.get('save_scans', {}).get('enabled') %}checked{% endif %}> Save Images From Successful Scans</label>
+
+            <label for="save_scans_max">Max Saved Scans (oldest deleted automatically beyond this):</label>
+            <input type="number" id="save_scans_max" name="save_scans_max" min="1" style="max-width: 150px;"
+                value="{{ config.get('save_scans', {}).get('max_saved', 200) }}">
+
+            <div class="inline-row" style="margin-top: 10px;">
+                <button type="button" id="clear_saved_scans_btn" style="background-color: #7f8c8d;">Clear Saved Scans</button>
+            </div>
+            <div id="saved_scans_status" style="margin-top: 8px; min-height: 20px; font-size: 0.9rem;"></div>
         </div>
 
         <div class="section" id="aws_settings">
@@ -474,8 +548,48 @@
             document.getElementById("led_apply_btn").addEventListener("click", applyLedSettings);
             document.getElementById("led_off_btn").addEventListener("click", ledOff);
 
+            document.getElementById("test_recognition_btn").addEventListener("click", testRecognition);
+            document.getElementById("clear_saved_scans_btn").addEventListener("click", clearSavedScans);
+
             loadLedState();
         });
+
+        async function testRecognition() {
+            const resultEl = document.getElementById("test_recognition_result");
+            const btn = document.getElementById("test_recognition_btn");
+            resultEl.style.display = "block";
+            resultEl.textContent = "Running (uses last-saved settings)...";
+            btn.disabled = true;
+            try {
+                const response = await fetch("/api/test_recognition", { method: "POST" });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    resultEl.textContent = "Error: " + (data.error || `HTTP ${response.status}`);
+                    return;
+                }
+                resultEl.textContent = data.response_text || "(empty response)";
+            } catch (err) {
+                resultEl.textContent = "Error: " + err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function clearSavedScans() {
+            const statusEl = document.getElementById("saved_scans_status");
+            statusEl.textContent = "Clearing...";
+            try {
+                const response = await fetch("/api/clear_saved_scans", { method: "POST" });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    statusEl.textContent = "Error: " + (data.error || `HTTP ${response.status}`);
+                    return;
+                }
+                statusEl.textContent = "Saved scans cleared.";
+            } catch (err) {
+                statusEl.textContent = "Error: " + err.message;
+            }
+        }
         
     </script>
 </body>

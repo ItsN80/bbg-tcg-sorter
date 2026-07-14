@@ -11,6 +11,7 @@ import json  # for parsing card info output
 import csv   # for writing CSV files
 import shutil  # for copying files
 import requests  # for downloading images
+import base64  # for encoding test-recognition images
 import pigpio
 import urllib.parse
 import smtplib
@@ -46,9 +47,25 @@ SCANNED_IMAGE_SRC = os.path.join(BASE_DIR, "storage", "scanned_card.png")
 SCANNED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_scanned.png")
 IDENTIFIED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_identified.png")
 FAILED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "failed")
+SUCCESS_SCAN_DEST = os.path.join(BASE_DIR, "static", "images", "scans")
+COMBINED_CROP_FILE = os.path.join(BASE_DIR, "storage", "combined_crop.jpg")
+
+# Default Ollama recognition prompt; kept in sync with scripts/Read-Card.py's
+# own copy since that script runs standalone and can't import this module.
+DEFAULT_OLLAMA_PROMPT = (
+    "You are identifying a Magic: The Gathering card from an image.\n"
+    "Return ONLY valid JSON with these keys:\n"
+    "card_name (string or null), set_code (string or null), "
+    "collector_number (string or null), confidence (number 0.0 to 1.0).\n"
+    "card_name must be the printed card title, not the type line.\n"
+    "If text is unclear or confidence is low, return null values.\n"
+    "Do NOT guess.\n"
+    "Do not include any extra text.\n"
+)
 
 #Create Paths if they do not exist
 os.makedirs(FAILED_IMAGE_DEST, exist_ok=True)
+os.makedirs(SUCCESS_SCAN_DEST, exist_ok=True)
 
 # Check if config.json exists; if not, copy config-default.json as config.json
 if not os.path.isfile(CONFIG_FILE):
@@ -447,6 +464,49 @@ def save_failed_read_details(timestamp, card, read_stdout="", read_stderr=""):
     except Exception as e:
         print(f"Failed to save failed read details: {e}")
 
+def save_successful_scan(timestamp, card):
+    """Optionally save a successful scan's images + parsed data, for
+    prompt-tuning reference. Gated by config["save_scans"]["enabled"]."""
+    try:
+        # card_scanned.png is the reliable fixed path — Read-Card.py's main() copies the
+        # exact image it sent for recognition here regardless of provider. combined_crop.jpg
+        # is only ever produced by the AWS Rekognition path, so it's best-effort/optional.
+        if os.path.exists(SCANNED_IMAGE_DEST):
+            shutil.copy(SCANNED_IMAGE_DEST, os.path.join(SUCCESS_SCAN_DEST, f"scan_{timestamp}.png"))
+        if os.path.exists(COMBINED_CROP_FILE):
+            shutil.copy(COMBINED_CROP_FILE, os.path.join(SUCCESS_SCAN_DEST, f"{timestamp}_combined_crop.jpg"))
+
+        details = {
+            "timestamp": timestamp,
+            "name": card.get("name", ""),
+            "set_symbol": card.get("set_symbol", ""),
+            "collector_number": card.get("collector_number", ""),
+        }
+        details_path = os.path.join(SUCCESS_SCAN_DEST, f"scan_{timestamp}.json")
+        with open(details_path, "w", encoding="utf-8") as f:
+            json.dump(details, f, indent=2)
+    except Exception as e:
+        print(f"Failed to save successful scan: {e}")
+
+def enforce_scan_retention(max_saved):
+    """Keeps only the newest `max_saved` saved-scan entries, deleting the
+    oldest ones (and their paired image files) once the cap is exceeded."""
+    try:
+        json_files = sorted(
+            f for f in os.listdir(SUCCESS_SCAN_DEST) if f.startswith("scan_") and f.endswith(".json")
+        )
+        excess = len(json_files) - max_saved
+        if excess <= 0:
+            return
+        for filename in json_files[:excess]:
+            ts = filename[len("scan_"):-len(".json")]
+            for related in (f"scan_{ts}.png", f"{ts}_combined_crop.jpg", f"scan_{ts}.json"):
+                path = os.path.join(SUCCESS_SCAN_DEST, related)
+                if os.path.exists(path):
+                    os.remove(path)
+    except Exception as e:
+        print(f"Failed to enforce scan retention: {e}")
+
 def parse_card_output(stdout_text):
     """
     Parse card JSON from subprocess stdout.
@@ -632,7 +692,14 @@ def sorting_loop():
                     card_identified_name = card.get("name", "")
                     card_identified_set = card.get("set_symbol", "")
                     card_identified_collector_number = card.get("collector_number", "")
-                
+
+                # Optionally save this successful scan's images/details for prompt-tuning reference.
+                _scan_cfg = read_config().get("save_scans", {})
+                if _scan_cfg.get("enabled"):
+                    _scan_ts = time.strftime("%Y%m%d-%H%M%S")
+                    save_successful_scan(_scan_ts, card)
+                    enforce_scan_retention(int(_scan_cfg.get("max_saved") or 200))
+
                 # Determine the correct box.
                 selected_box = None
                 with lock:
@@ -1016,6 +1083,67 @@ def api_led_off():
         }), 503
     return jsonify(state)
 
+@app.route("/api/test_recognition", methods=["POST"])
+def api_test_recognition():
+    """Runs the currently-saved Ollama prompt/parameters against the most
+    recently captured card image, without needing a physical card feed.
+    Uses last-saved settings — save first if you just changed something."""
+    config = read_config()
+    ollama_cfg = config.get("ollama", {})
+    base_url = (ollama_cfg.get("base_url") or "").rstrip("/")
+    if not base_url:
+        return jsonify({"success": False, "error": "Ollama Base URL is not configured."}), 400
+    if not os.path.exists(SCANNED_IMAGE_DEST):
+        return jsonify({"success": False, "error": "No captured card image yet — run a scan first."}), 404
+
+    with open(SCANNED_IMAGE_DEST, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    payload = {
+        "model": ollama_cfg.get("model") or "minicpm-v:latest",
+        "prompt": ollama_cfg.get("prompt") or DEFAULT_OLLAMA_PROMPT,
+        "images": [img_b64],
+        "stream": False,
+        "format": "json",
+        "options": {
+            "temperature": float(ollama_cfg.get("temperature", 0.0)),
+            "top_p": float(ollama_cfg.get("top_p", 0.1)),
+            "top_k": int(ollama_cfg.get("top_k", 20)),
+            "repeat_penalty": float(ollama_cfg.get("repeat_penalty", 1.2)),
+            "num_predict": int(ollama_cfg.get("num_predict", 120)),
+            "seed": int(ollama_cfg.get("seed", 42)),
+        },
+    }
+    api_key = ollama_cfg.get("api_key", "")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    timeout = int(ollama_cfg.get("timeout_seconds") or 60)
+
+    try:
+        r = requests.post(f"{base_url}/api/generate", json=payload, headers=headers, timeout=timeout)
+    except requests.exceptions.RequestException as e:
+        return jsonify({"success": False, "error": f"Request failed: {e}"}), 502
+
+    if r.status_code >= 400:
+        return jsonify({"success": False, "error": f"HTTP {r.status_code}: {r.text[:2000]}"}), 502
+
+    try:
+        data = r.json()
+    except ValueError:
+        return jsonify({"success": False, "error": "Response was not valid JSON.", "raw": r.text[:2000]}), 502
+
+    return jsonify({"success": True, "response_text": data.get("response", ""), "raw": data})
+
+@app.route("/api/clear_saved_scans", methods=["POST"])
+def api_clear_saved_scans():
+    try:
+        for filename in os.listdir(SUCCESS_SCAN_DEST):
+            file_path = os.path.join(SUCCESS_SCAN_DEST, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     error = None
@@ -1047,6 +1175,30 @@ def settings():
             config["ollama"]["base_url"] = request.form.get("ollama_base_url", "").strip()
             config["ollama"]["model"] = request.form.get("ollama_model", "").strip()
             config["ollama"]["api_key"] = request.form.get("ollama_api_key", "").strip()
+            config["ollama"]["prompt"] = request.form.get("ollama_prompt", "").strip()
+            config["ollama"]["debug"] = True if request.form.get("ollama_debug") else False
+            try:
+                config["ollama"]["timeout_seconds"] = int(request.form.get("ollama_timeout_seconds") or 60)
+                config["ollama"]["min_confidence"] = float(request.form.get("ollama_min_confidence") or 0.80)
+                config["ollama"]["temperature"] = float(request.form.get("ollama_temperature") or 0.0)
+                config["ollama"]["top_p"] = float(request.form.get("ollama_top_p") or 0.1)
+                config["ollama"]["top_k"] = int(request.form.get("ollama_top_k") or 20)
+                config["ollama"]["repeat_penalty"] = float(request.form.get("ollama_repeat_penalty") or 1.2)
+                config["ollama"]["num_predict"] = int(request.form.get("ollama_num_predict") or 120)
+                config["ollama"]["seed"] = int(request.form.get("ollama_seed") or 42)
+            except ValueError:
+                error = "Recognition parameters must be numbers."
+                return render_template("settings.html", config=config, error=error)
+
+            if "save_scans" not in config or not isinstance(config["save_scans"], dict):
+                config["save_scans"] = {}
+            config["save_scans"]["enabled"] = True if request.form.get("save_scans_enabled") else False
+            try:
+                config["save_scans"]["max_saved"] = int(request.form.get("save_scans_max") or 200)
+            except ValueError:
+                error = "Max Saved Scans must be a whole number."
+                return render_template("settings.html", config=config, error=error)
+
             if "smtp" not in config:
                 config["smtp"] = {}  # Ensure smtp key exists in config
             config["smtp"]["server"] = request.form.get("smtp_server", "")

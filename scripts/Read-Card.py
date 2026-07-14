@@ -15,6 +15,19 @@ import sys
 # Base directory of the script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Default Ollama recognition prompt; overridable via config["ollama"]["prompt"]
+# from the Settings page.
+DEFAULT_OLLAMA_PROMPT = (
+    "You are identifying a Magic: The Gathering card from an image.\n"
+    "Return ONLY valid JSON with these keys:\n"
+    "card_name (string or null), set_code (string or null), "
+    "collector_number (string or null), confidence (number 0.0 to 1.0).\n"
+    "card_name must be the printed card title, not the type line.\n"
+    "If text is unclear or confidence is low, return null values.\n"
+    "Do NOT guess.\n"
+    "Do not include any extra text.\n"
+)
+
 # Paths relative to the script location
 output_directory = os.path.normpath(os.path.join(BASE_DIR, "..", "storage"))
 output_directory_scanned = os.path.normpath(os.path.join(BASE_DIR, "..", "static", "images"))
@@ -554,17 +567,10 @@ def recognize_with_ollama(processed_image, config):
     img_b64 = image_to_base64(processed_image)
     debug_log(dbg, f"Image encoded to base64 ({len(img_b64)} chars)")
 
-    # Prompt: strict JSON and conservative fail behavior
-    prompt = (
-        "You are identifying a Magic: The Gathering card from an image.\n"
-        "Return ONLY valid JSON with these keys:\n"
-        "card_name (string or null), set_code (string or null), "
-        "collector_number (string or null), confidence (number 0.0 to 1.0).\n"
-        "card_name must be the printed card title, not the type line.\n"
-        "If text is unclear or confidence is low, return null values.\n"
-        "Do NOT guess.\n"
-        "Do not include any extra text.\n"
-    )
+    # Prompt: strict JSON and conservative fail behavior. Editable from the
+    # Settings page (config["ollama"]["prompt"]); falls back to this default
+    # when left blank.
+    prompt = ollama_cfg.get("prompt") or DEFAULT_OLLAMA_PROMPT
 
     payload = {
         "model": model,

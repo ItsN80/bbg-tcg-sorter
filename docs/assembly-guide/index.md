@@ -9,8 +9,8 @@ title: BBG TCG Card Sorter — Assembly Guide
 ## Table of Contents
 
 - [Printing Orientation Notes](#printing-orientation-notes)
-- [Base – Outer](#base-outer)
-- [Base – Inner](#base-inner)
+- [Base – Outer](#base--outer)
+- [Base – Inner](#base--inner)
 - [Scanner](#scanner)
 - [Flappers (Repeat x9)](#flappers-repeat-x9)
 - [Cross Braces (Repeat x2)](#cross-braces-repeat-x2)
@@ -21,7 +21,7 @@ title: BBG TCG Card Sorter — Assembly Guide
   - [Guide 0](#guide-0) · [Guide 1](#guide-1) · [Guide 2](#guide-2) · [Guide 3](#guide-3) · [Guide 4](#guide-4) · [Guide 5](#guide-5) · [Guide 6](#guide-6) · [Guide 7](#guide-7) · [Guide 8](#guide-8)
 - [Final Assembly](#final-assembly)
   - [Connecting to Skadis Boards](#connecting-to-skadis-boards)
-  - [Scanner Rails & Camera Mount](#scanner-rails-camera-mount)
+  - [Scanner Rails & Camera Mount](#scanner-rails--camera-mount)
   - [Wiring](#wiring)
 - [Extras](#extras)
   - [Cable Guides](#cable-guides)

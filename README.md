@@ -6,7 +6,7 @@ Rekognition or an Ollama-compatible vision model) reads the card name/set, Scryf
 identifies the card, and servo-controlled flappers route it into one of 10 bins. A
 Flask web UI runs the whole thing and exposes live status, bin rules, and settings.
 
-3D-printable design files for the physical build: **[ADD LINK HERE]**
+3D-printable design files for the physical build: **[Etsy listing](https://www.etsy.com/listing/4357367379/mtg-card-sorter-3d-print-stl-files-ikea)**
 
 This is a hobbyist project shared as-is under the AGPLv3 license (see [LICENSE](LICENSE)).
 It assumes you're comfortable with basic Raspberry Pi setup, soldering/wiring, and a

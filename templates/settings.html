@@ -68,11 +68,47 @@
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
         .section {
-            margin-bottom: 30px;
-            padding: 15px;
+            margin-bottom: 20px;
+            padding: 0;
             border-radius: 8px;
             background-color: #fdfdfd;
             border: 1px solid #dcdcdc;
+            overflow: hidden;
+        }
+        .section > summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 15px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        .section > summary::-webkit-details-marker {
+            display: none;
+        }
+        .section > summary::after {
+            content: "\25B8";
+            font-size: 0.9em;
+            color: var(--muted);
+            transition: transform 0.15s;
+            margin-left: 10px;
+        }
+        .section[open] > summary::after {
+            transform: rotate(90deg);
+        }
+        .section > summary:hover {
+            background-color: #f2f4f6;
+        }
+        .accordion-body {
+            padding: 0 15px 15px 15px;
+            border-top: 1px solid #eee;
+        }
+        .accordion-body h3:first-child {
+            margin-top: 15px;
         }
         .flapper-grid {
             display: grid;
@@ -152,213 +188,240 @@
           <p style="color:red; text-align:center;">{{ error }}</p>
         {% endif %}
     </div>
-    <form method="POST">
-        <div class="section">
-            <h2>System Name</h2>
-            <label for="system_name">System Name:</label>
-            <input type="text" id="system_name" name="system_name" value="{{ config.system_name or '' }}">
-        </div>
+    <form method="POST" autocomplete="off">
+        <details class="section" open>
+            <summary>General</summary>
+            <div class="accordion-body">
+                <label for="system_name">System Name:</label>
+                <input type="text" id="system_name" name="system_name" value="{{ config.system_name or '' }}">
+            </div>
+        </details>
 
-        <div class="section">
-            <h2>Recognition Settings</h2>
+        <details class="section"{% if error %} open{% endif %}>
+            <summary>Recognition &amp; Scans</summary>
+            <div class="accordion-body">
 
-            <label for="recognition_provider">Recognition Provider:</label>
-            <select id="recognition_provider" name="recognition_provider">
-                <option value="aws" {{ 'selected' if config.recognition_provider == 'aws' else '' }}>Amazon Rekognition</option>
-                <option value="ollama" {{ 'selected' if config.recognition_provider == 'ollama' else '' }}>Ollama (MiniCPM-V)</option>
-                <option value="do_serverless" {{ 'selected' if config.recognition_provider == 'do_serverless' else '' }}>DO Serverless</option>
-            </select>
+                <h3>Recognition Provider</h3>
+                <label for="recognition_provider">Recognition Provider:</label>
+                <select id="recognition_provider" name="recognition_provider">
+                    <option value="aws" {{ 'selected' if config.recognition_provider == 'aws' else '' }}>Amazon Rekognition</option>
+                    <option value="ollama" {{ 'selected' if config.recognition_provider == 'ollama' else '' }}>Ollama (MiniCPM-V)</option>
+                    <option value="do_serverless" {{ 'selected' if config.recognition_provider == 'do_serverless' else '' }}>DO Serverless</option>
+                </select>
 
-            <div class="subsection" id="ollama_settings" style="margin-top: 15px;">
-                <h3>Ollama / DO Serverless Settings</h3>
+                <div class="subsection" id="ollama_settings" style="margin-top: 15px;">
+                    <h3>Ollama / DO Serverless Settings</h3>
 
-                <label for="ollama_base_url">Base URL:</label>
-                <input type="text" id="ollama_base_url" name="ollama_base_url"
-                    value="{{ (config.ollama.base_url if config.ollama is defined and config.ollama.base_url is defined else '') }}">
+                    <label for="ollama_base_url">Base URL:</label>
+                    <input type="text" id="ollama_base_url" name="ollama_base_url"
+                        value="{{ (config.ollama.base_url if config.ollama is defined and config.ollama.base_url is defined else '') }}">
 
-                <label for="ollama_model">Model:</label>
-                <input type="text" id="ollama_model" name="ollama_model"
-                    value="{{ (config.ollama.model if config.ollama is defined and config.ollama.model is defined else '') }}">
+                    <label for="ollama_model">Model:</label>
+                    <input type="text" id="ollama_model" name="ollama_model"
+                        value="{{ (config.ollama.model if config.ollama is defined and config.ollama.model is defined else '') }}">
 
-                <label for="ollama_api_key">API Key:</label>
-                <input type="password" id="ollama_api_key" name="ollama_api_key"
-                    value="{{ (config.ollama.api_key if config.ollama is defined and config.ollama.api_key is defined else '') }}"
-                    placeholder="Leave blank if not required">
+                    <label for="ollama_api_key">API Key:</label>
+                    <input type="password" id="ollama_api_key" name="ollama_api_key" autocomplete="new-password"
+                        value="{{ (config.ollama.api_key if config.ollama is defined and config.ollama.api_key is defined else '') }}"
+                        placeholder="Leave blank if not required">
 
-                <label for="ollama_timeout_seconds">Request Timeout (seconds):</label>
-                <input type="number" id="ollama_timeout_seconds" name="ollama_timeout_seconds" min="1"
-                    value="{{ config.get('ollama', {}).get('timeout_seconds', 60) }}">
+                    <label for="ollama_timeout_seconds">Request Timeout (seconds):</label>
+                    <input type="number" id="ollama_timeout_seconds" name="ollama_timeout_seconds" min="1"
+                        value="{{ config.get('ollama', {}).get('timeout_seconds', 60) }}">
 
-                <label><input type="checkbox" id="ollama_debug" name="ollama_debug" {% if config.get('ollama', {}).get('debug') %}checked{% endif %}> Verbose Debug Logging</label>
+                    <label><input type="checkbox" id="ollama_debug" name="ollama_debug" {% if config.get('ollama', {}).get('debug') %}checked{% endif %}> Verbose Debug Logging</label>
 
-                <p style="font-size: 0.85rem; color: #666; margin-top: 15px;">
-                    Note: the prompt and parameters below only take effect for a
-                    <strong>direct Ollama</strong> server. DO Serverless deployments
-                    (like the bundled quota_service.py) intentionally use their own
-                    server-side prompt for consistency/security, and ignore these.
+                    <p style="font-size: 0.85rem; color: #666; margin-top: 15px;">
+                        Note: the prompt and parameters below only take effect for a
+                        <strong>direct Ollama</strong> server. DO Serverless deployments
+                        (like the bundled quota_service.py) intentionally use their own
+                        server-side prompt for consistency/security, and ignore these.
+                    </p>
+
+                    <label for="ollama_prompt">Recognition Prompt:</label>
+                    <textarea id="ollama_prompt" name="ollama_prompt" rows="6" style="width:100%; padding:8px; margin-top:5px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; font-family: monospace; font-size: 0.85rem;"
+                        placeholder="Leave blank to use the built-in default prompt.">{{ config.get('ollama', {}).get('prompt', '') }}</textarea>
+
+                    <div class="inline-row" style="margin-top: 10px;">
+                        <div>
+                            <label for="ollama_min_confidence">Min Confidence:</label>
+                            <input type="number" id="ollama_min_confidence" name="ollama_min_confidence" step="0.01" min="0" max="1" style="width:90px;"
+                                value="{{ config.get('ollama', {}).get('min_confidence', 0.80) }}">
+                        </div>
+                        <div>
+                            <label for="ollama_temperature">Temperature:</label>
+                            <input type="number" id="ollama_temperature" name="ollama_temperature" step="0.01" min="0" style="width:90px;"
+                                value="{{ config.get('ollama', {}).get('temperature', 0.0) }}">
+                        </div>
+                        <div>
+                            <label for="ollama_top_p">Top P:</label>
+                            <input type="number" id="ollama_top_p" name="ollama_top_p" step="0.01" min="0" max="1" style="width:90px;"
+                                value="{{ config.get('ollama', {}).get('top_p', 0.1) }}">
+                        </div>
+                        <div>
+                            <label for="ollama_top_k">Top K:</label>
+                            <input type="number" id="ollama_top_k" name="ollama_top_k" step="1" min="0" style="width:90px;"
+                                value="{{ config.get('ollama', {}).get('top_k', 20) }}">
+                        </div>
+                        <div>
+                            <label for="ollama_repeat_penalty">Repeat Penalty:</label>
+                            <input type="number" id="ollama_repeat_penalty" name="ollama_repeat_penalty" step="0.01" min="0" style="width:90px;"
+                                value="{{ config.get('ollama', {}).get('repeat_penalty', 1.2) }}">
+                        </div>
+                        <div>
+                            <label for="ollama_num_predict">Num Predict:</label>
+                            <input type="number" id="ollama_num_predict" name="ollama_num_predict" step="1" min="1" style="width:90px;"
+                                value="{{ config.get('ollama', {}).get('num_predict', 120) }}">
+                        </div>
+                        <div>
+                            <label for="ollama_seed">Seed:</label>
+                            <input type="number" id="ollama_seed" name="ollama_seed" step="1" style="width:90px;"
+                                value="{{ config.get('ollama', {}).get('seed', 42) }}">
+                        </div>
+                    </div>
+
+                    <div class="inline-row" style="margin-top: 10px;">
+                        <button type="button" id="test_recognition_btn">Test Recognition</button>
+                    </div>
+                    <pre id="test_recognition_result" style="white-space: pre-wrap; background: #f7f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 0.85rem; display: none;"></pre>
+                </div>
+
+                <div class="subsection" id="aws_settings" style="margin-top: 15px;">
+                    <h3>AWS Settings</h3>
+                    <label for="aws_access_key_id">Access Key ID:</label>
+                    <input type="text" id="aws_access_key_id" name="aws_access_key_id" value="{{ config.aws.access_key_id or '' }}">
+
+                    <label for="aws_secret_access_key">Secret Access Key:</label>
+                    <input type="password" id="aws_secret_access_key" name="aws_secret_access_key" autocomplete="new-password" value="{{ config.aws.secret_access_key or '' }}">
+
+                    <label for="aws_region_name">Region Name:</label>
+                    <input type="text" id="aws_region_name" name="aws_region_name" value="{{ config.aws.region_name or '' }}">
+                </div>
+
+                <h3>Successful Scan Saving</h3>
+                <label><input type="checkbox" id="save_scans_enabled" name="save_scans_enabled" {% if config.get('save_scans', {}).get('enabled') %}checked{% endif %}> Save Images From Successful Scans</label>
+
+                <label for="save_scans_max">Max Saved Scans (oldest deleted automatically beyond this):</label>
+                <input type="number" id="save_scans_max" name="save_scans_max" min="1" style="max-width: 150px;"
+                    value="{{ config.get('save_scans', {}).get('max_saved', 200) }}">
+
+                <div class="inline-row" style="margin-top: 10px;">
+                    <button type="button" id="clear_saved_scans_btn" style="background-color: #7f8c8d;">Clear Saved Scans</button>
+                </div>
+                <div id="saved_scans_status" style="margin-top: 8px; min-height: 20px; font-size: 0.9rem;"></div>
+
+                <h3>Scryfall Settings</h3>
+                <label for="scryfall_search_url">Scryfall Search URL:</label>
+                <input type="text" id="scryfall_search_url" name="scryfall_search_url" value="{{ config.scryfall_search_url or '' }}">
+            </div>
+        </details>
+
+        <details class="section"{% if error %} open{% endif %}>
+            <summary>Servos &amp; Flappers</summary>
+            <div class="accordion-body">
+                <h3>Flapper Settings</h3>
+                <div class="flapper-grid">
+                {% for flapper, settings in config.flappers.items() %}
+                <div class="subsection">
+                    <h3>{{ flapper|replace('_', ' ')|title }}</h3>
+                    <label for="{{ flapper }}_open_degrees">Open:</label>
+                    <input type="text" id="{{ flapper }}_open_degrees" name="{{ flapper }}_open_degrees" value="{{ settings.open_degrees or '' }}">
+
+                    <label for="{{ flapper }}_close_degrees">Close:</label>
+                    <input type="text" id="{{ flapper }}_close_degrees" name="{{ flapper }}_close_degrees" value="{{ settings.close_degrees or '' }}">
+
+                    <button type="button" onclick="testFlapper('{{ flapper }}')">Test</button>
+                </div>
+                {% endfor %}
+                </div>
+
+                <h3>Card Servo Settings</h3>
+                <label for="card_servo_open_degrees">Open Degrees:</label>
+                <input type="text" id="card_servo_open_degrees" name="card_servo_open_degrees" value="{{ config.card_servo.open_degrees or '' }}">
+
+                <label for="card_servo_close_degrees">Close Degrees:</label>
+                <input type="text" id="card_servo_close_degrees" name="card_servo_close_degrees" value="{{ config.card_servo.close_degrees or '' }}">
+
+                <button type="button" onclick="testCardServo()">Test Card Servo</button>
+            </div>
+        </details>
+
+        <details class="section"{% if error %} open{% endif %}>
+            <summary>Feed Cycle Tuning</summary>
+            <div class="accordion-body">
+                <label for="motor2_extra_feed_sec">Phase 1 - Motor 2 Extra Feed Time (seconds):</label>
+                <input type="text" id="motor2_extra_feed_sec" name="motor2_extra_feed_sec" value="{{ config.get('feed', {}).get('motor2_extra_feed_sec', 1.2) }}">
+
+                <p style="margin-top:8px; opacity:0.8;">
+                    After Sensor 1 is triggered, Motor 2 will continue feeding for this many seconds before stopping and reversing.
                 </p>
 
-                <label for="ollama_prompt">Recognition Prompt:</label>
-                <textarea id="ollama_prompt" name="ollama_prompt" rows="6" style="width:100%; padding:8px; margin-top:5px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; font-family: monospace; font-size: 0.85rem;"
-                    placeholder="Leave blank to use the built-in default prompt.">{{ config.get('ollama', {}).get('prompt', '') }}</textarea>
+                <label for="sensor1_clear_timeout_sec">Phase 2 - Anti-Double-Feed Reverse Timeout (seconds):</label>
+                <input type="text" id="sensor1_clear_timeout_sec" name="sensor1_clear_timeout_sec" value="{{ config.get('feed', {}).get('sensor1_clear_timeout_sec', 5.0) }}">
 
-                <div class="inline-row" style="margin-top: 10px;">
-                    <div>
-                        <label for="ollama_min_confidence">Min Confidence:</label>
-                        <input type="number" id="ollama_min_confidence" name="ollama_min_confidence" step="0.01" min="0" max="1" style="width:90px;"
-                            value="{{ config.get('ollama', {}).get('min_confidence', 0.80) }}">
-                    </div>
-                    <div>
-                        <label for="ollama_temperature">Temperature:</label>
-                        <input type="number" id="ollama_temperature" name="ollama_temperature" step="0.01" min="0" style="width:90px;"
-                            value="{{ config.get('ollama', {}).get('temperature', 0.0) }}">
-                    </div>
-                    <div>
-                        <label for="ollama_top_p">Top P:</label>
-                        <input type="number" id="ollama_top_p" name="ollama_top_p" step="0.01" min="0" max="1" style="width:90px;"
-                            value="{{ config.get('ollama', {}).get('top_p', 0.1) }}">
-                    </div>
-                    <div>
-                        <label for="ollama_top_k">Top K:</label>
-                        <input type="number" id="ollama_top_k" name="ollama_top_k" step="1" min="0" style="width:90px;"
-                            value="{{ config.get('ollama', {}).get('top_k', 20) }}">
-                    </div>
-                    <div>
-                        <label for="ollama_repeat_penalty">Repeat Penalty:</label>
-                        <input type="number" id="ollama_repeat_penalty" name="ollama_repeat_penalty" step="0.01" min="0" style="width:90px;"
-                            value="{{ config.get('ollama', {}).get('repeat_penalty', 1.2) }}">
-                    </div>
-                    <div>
-                        <label for="ollama_num_predict">Num Predict:</label>
-                        <input type="number" id="ollama_num_predict" name="ollama_num_predict" step="1" min="1" style="width:90px;"
-                            value="{{ config.get('ollama', {}).get('num_predict', 120) }}">
-                    </div>
-                    <div>
-                        <label for="ollama_seed">Seed:</label>
-                        <input type="number" id="ollama_seed" name="ollama_seed" step="1" style="width:90px;"
-                            value="{{ config.get('ollama', {}).get('seed', 42) }}">
-                    </div>
+                <p style="margin-top:8px; opacity:0.8;">
+                    How long to wait for Sensor 1 to clear while Motors 1 & 2 reverse before the attempt is considered a failure.
+                </p>
+
+                <label for="sensor2_block_timeout_sec">Phase 3 - Exit Routing Timeout (seconds):</label>
+                <input type="text" id="sensor2_block_timeout_sec" name="sensor2_block_timeout_sec" value="{{ config.get('feed', {}).get('sensor2_block_timeout_sec', 6.0) }}">
+
+                <p style="margin-top:8px; opacity:0.8;">
+                    How long to wait for Sensor 2 (exit sensor) to trigger before the attempt is considered a failure.
+                </p>
+
+                <label for="feed_max_attempts">Feed Cycle Max Attempts:</label>
+                <input type="text" id="feed_max_attempts" name="feed_max_attempts" value="{{ config.get('feed', {}).get('max_attempts', 3) }}">
+
+                <p style="margin-top:8px; opacity:0.8;">
+                    Number of attempts per feed cycle round. A single feed cycle runs up to two rounds of this many attempts each (a recovery sequence runs between rounds), so the total attempts before giving up is double this value.
+                </p>
+            </div>
+        </details>
+
+        <details class="section">
+            <summary>LED Strip</summary>
+            <div class="accordion-body">
+                <label><input type="checkbox" id="led_enabled"> Enabled</label>
+
+                <label for="led_color">Color:</label>
+                <div class="inline-row">
+                    <input type="color" id="led_color" value="#008cff">
+                    <input type="text" id="led_hex" value="#008cff" maxlength="7" placeholder="#RRGGBB">
                 </div>
 
-                <div class="inline-row" style="margin-top: 10px;">
-                    <button type="button" id="test_recognition_btn">Test Recognition</button>
+                <label for="led_brightness">Brightness:</label>
+                <div class="inline-row">
+                    <input type="range" id="led_brightness" min="0" max="100" value="35">
+                    <span id="led_brightness_value">35%</span>
                 </div>
-                <pre id="test_recognition_result" style="white-space: pre-wrap; background: #f7f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 0.85rem; display: none;"></pre>
+
+                <div class="inline-row">
+                    <button type="button" id="led_apply_btn">Apply</button>
+                    <button type="button" id="led_off_btn" style="background-color: #7f8c8d;">Off</button>
+                </div>
+                <div id="led_status"></div>
             </div>
-        </div>
+        </details>
 
-        <div class="section">
-            <h2>Successful Scan Saving</h2>
-            <label><input type="checkbox" id="save_scans_enabled" name="save_scans_enabled" {% if config.get('save_scans', {}).get('enabled') %}checked{% endif %}> Save Images From Successful Scans</label>
-
-            <label for="save_scans_max">Max Saved Scans (oldest deleted automatically beyond this):</label>
-            <input type="number" id="save_scans_max" name="save_scans_max" min="1" style="max-width: 150px;"
-                value="{{ config.get('save_scans', {}).get('max_saved', 200) }}">
-
-            <div class="inline-row" style="margin-top: 10px;">
-                <button type="button" id="clear_saved_scans_btn" style="background-color: #7f8c8d;">Clear Saved Scans</button>
+        <details class="section"{% if error %} open{% endif %}>
+            <summary>Email &amp; Notifications</summary>
+            <div class="accordion-body">
+                <label for="smtp_server">SMTP Server:</label>
+                <input type="text" id="smtp_server" name="smtp_server" value="{{ config.smtp.server or '' }}">
+                <label for="smtp_port">SMTP Port:</label>
+                <input type="number" id="smtp_port" name="smtp_port" value="{{ config.smtp.port or 587 }}">
+                <label for="smtp_username">SMTP Username:</label>
+                <input type="text" id="smtp_username" name="smtp_username" value="{{ config.smtp.username or '' }}">
+                <label for="smtp_password">SMTP Password:</label>
+                <input type="password" id="smtp_password" name="smtp_password" autocomplete="new-password" value="{{ config.smtp.password or '' }}">
+                <label for="smtp_from">From Email:</label>
+                <input type="email" id="smtp_from" name="smtp_from" value="{{ config.smtp.from_email or '' }}">
+                <label for="smtp_to">To Email:</label>
+                <input type="email" id="smtp_to" name="smtp_to" value="{{ config.smtp.to_email or '' }}">
+                <label><input type="checkbox" name="smtp_enabled" {% if config.smtp.enabled %}checked{% endif %}> Enable Shutdown Summary Email</label>
             </div>
-            <div id="saved_scans_status" style="margin-top: 8px; min-height: 20px; font-size: 0.9rem;"></div>
-        </div>
-
-        <div class="section" id="aws_settings">
-            <h2>AWS Settings</h2>
-            <label for="aws_access_key_id">Access Key ID:</label>
-            <input type="text" id="aws_access_key_id" name="aws_access_key_id" value="{{ config.aws.access_key_id or '' }}">
-
-            <label for="aws_secret_access_key">Secret Access Key:</label>
-            <input type="password" id="aws_secret_access_key" name="aws_secret_access_key" value="{{ config.aws.secret_access_key or '' }}">
-
-            <label for="aws_region_name">Region Name:</label>
-            <input type="text" id="aws_region_name" name="aws_region_name" value="{{ config.aws.region_name or '' }}">
-        </div>
-
-        <div class="section">
-            <h2>Scryfall Settings</h2>
-            <label for="scryfall_search_url">Scryfall Search URL:</label>
-            <input type="text" id="scryfall_search_url" name="scryfall_search_url" value="{{ config.scryfall_search_url or '' }}">
-        </div>
-
-        <div class="section">
-            <h2>Flapper Settings</h2>
-            <div class="flapper-grid">
-            {% for flapper, settings in config.flappers.items() %}
-            <div class="subsection">
-                <h3>{{ flapper|replace('_', ' ')|title }}</h3>
-                <label for="{{ flapper }}_open_degrees">Open:</label>
-                <input type="text" id="{{ flapper }}_open_degrees" name="{{ flapper }}_open_degrees" value="{{ settings.open_degrees or '' }}">
-
-                <label for="{{ flapper }}_close_degrees">Close:</label>
-                <input type="text" id="{{ flapper }}_close_degrees" name="{{ flapper }}_close_degrees" value="{{ settings.close_degrees or '' }}">
-
-                <button type="button" onclick="testFlapper('{{ flapper }}')">Test</button>
-            </div>
-            {% endfor %}
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Card Servo Settings</h2>
-            <label for="card_servo_open_degrees">Open Degrees:</label>
-            <input type="text" id="card_servo_open_degrees" name="card_servo_open_degrees" value="{{ config.card_servo.open_degrees or '' }}">
-
-            <label for="card_servo_close_degrees">Close Degrees:</label>
-            <input type="text" id="card_servo_close_degrees" name="card_servo_close_degrees" value="{{ config.card_servo.close_degrees or '' }}">
-
-            <button type="button" onclick="testCardServo()">Test Card Servo</button>
-        </div>
-
-        <div class="section">
-            <h2>Feed Settings</h2>
-
-            <label for="motor2_extra_feed_sec">Motor 2 Extra Feed Time (seconds):</label>
-            <input type="text" id="motor2_extra_feed_sec" name="motor2_extra_feed_sec" value="{{ config.get('feed', {}).get('motor2_extra_feed_sec', 1.2) }}">
-
-            <p style="margin-top:8px; opacity:0.8;">
-                After Sensor 1 is triggered, Motor 2 will continue feeding for this many seconds before stopping and reversing.
-            </p>
-        </div>
-
-        <div class="section">
-            <h2>LED Strip</h2>
-            <label><input type="checkbox" id="led_enabled"> Enabled</label>
-
-            <label for="led_color">Color:</label>
-            <div class="inline-row">
-                <input type="color" id="led_color" value="#008cff">
-                <input type="text" id="led_hex" value="#008cff" maxlength="7" placeholder="#RRGGBB">
-            </div>
-
-            <label for="led_brightness">Brightness:</label>
-            <div class="inline-row">
-                <input type="range" id="led_brightness" min="0" max="100" value="35">
-                <span id="led_brightness_value">35%</span>
-            </div>
-
-            <div class="inline-row">
-                <button type="button" id="led_apply_btn">Apply</button>
-                <button type="button" id="led_off_btn" style="background-color: #7f8c8d;">Off</button>
-            </div>
-            <div id="led_status"></div>
-        </div>
-
-
-        <div class="section">
-            <h2>Shutdown Email Settings</h2>
-            <label for="smtp_server">SMTP Server:</label>
-            <input type="text" id="smtp_server" name="smtp_server" value="{{ config.smtp.server or '' }}">
-            <label for="smtp_port">SMTP Port:</label>
-            <input type="number" id="smtp_port" name="smtp_port" value="{{ config.smtp.port or 587 }}">
-            <label for="smtp_username">SMTP Username:</label>
-            <input type="text" id="smtp_username" name="smtp_username" value="{{ config.smtp.username or '' }}">
-            <label for="smtp_password">SMTP Password:</label>
-            <input type="password" id="smtp_password" name="smtp_password" value="{{ config.smtp.password or '' }}">
-            <label for="smtp_from">From Email:</label>
-            <input type="email" id="smtp_from" name="smtp_from" value="{{ config.smtp.from_email or '' }}">
-            <label for="smtp_to">To Email:</label>
-            <input type="email" id="smtp_to" name="smtp_to" value="{{ config.smtp.to_email or '' }}">
-            <label><input type="checkbox" name="smtp_enabled" {% if config.smtp.enabled %}checked{% endif %}> Enable Shutdown Summary Email</label>
-        </div>
+        </details>
 
         <div class="form-actions">
             <button type="submit" name="save">Save</button>
@@ -418,7 +481,7 @@
                 .catch(err => {
                     alert("Error updating program:\n" + err);
                 });
-        }  
+        }
 
         function setLedStatus(message, ok = true) {
             const el = document.getElementById("led_status");
@@ -590,7 +653,7 @@
                 statusEl.textContent = "Error: " + err.message;
             }
         }
-        
+
     </script>
 </body>
 </html>

@@ -1232,6 +1232,30 @@ def settings():
                 except ValueError:
                     error = "Motor 2 Extra Feed Time must be a number (example: 1.2)."
                     return render_template("settings.html", config=config, error=error)
+            sensor1_clear_timeout = request.form.get("sensor1_clear_timeout_sec", "").strip()
+            if sensor1_clear_timeout != "":
+                try:
+                    config["feed"]["sensor1_clear_timeout_sec"] = float(sensor1_clear_timeout)
+                except ValueError:
+                    error = "Phase 2 (Anti-Double-Feed Reverse) Timeout must be a number (example: 5.0)."
+                    return render_template("settings.html", config=config, error=error)
+            sensor2_block_timeout = request.form.get("sensor2_block_timeout_sec", "").strip()
+            if sensor2_block_timeout != "":
+                try:
+                    config["feed"]["sensor2_block_timeout_sec"] = float(sensor2_block_timeout)
+                except ValueError:
+                    error = "Phase 3 (Exit Routing) Timeout must be a number (example: 6.0)."
+                    return render_template("settings.html", config=config, error=error)
+            feed_max_attempts = request.form.get("feed_max_attempts", "").strip()
+            if feed_max_attempts != "":
+                try:
+                    max_attempts_val = int(feed_max_attempts)
+                    if max_attempts_val < 1:
+                        raise ValueError
+                    config["feed"]["max_attempts"] = max_attempts_val
+                except ValueError:
+                    error = "Feed Cycle Max Attempts must be a whole number of 1 or more (example: 3)."
+                    return render_template("settings.html", config=config, error=error)
             if write_config(config):
                 return redirect(url_for("index"))
             else:

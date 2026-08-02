@@ -27,9 +27,9 @@ EXTRA_PULL_DELAY_SEC = 0.20  # adjust 0.10–0.40
 MOTOR2_STOP_SETTLE_SEC = 0.05  # small pause after stopping motor 2 (optional)
 
 SENSOR1_BLOCK_TIMEOUT_SEC = 8.0
-SENSOR1_CLEAR_TIMEOUT_SEC = 5.0
-SENSOR2_BLOCK_TIMEOUT_SEC = 6.0
-FEED_CYCLE_MAX_ATTEMPTS = 3
+SENSOR1_CLEAR_TIMEOUT_SEC = 5.0  # Phase 2 (anti-double-feed reverse) timeout; overridden below from config
+SENSOR2_BLOCK_TIMEOUT_SEC = 6.0  # Phase 3 (exit routing) timeout; overridden below from config
+FEED_CYCLE_MAX_ATTEMPTS = 3  # overridden below from config
 
 STABLE_TIME_MS = 40
 
@@ -96,15 +96,32 @@ CONFIG_FILE = os.path.normpath(os.path.join(BASE_DIR, "..", "storage", "config.j
 JAM_CAPTURE_SCRIPT = os.path.join(BASE_DIR, "Test-Camera.py")
 SERVO_CONTROLLER = os.path.join(BASE_DIR, "servo_controller.py")
 
-def read_config_value_motor2_extra_feed(default=1.2):
+def read_feed_config():
     try:
         with open(CONFIG_FILE, "r") as f:
             cfg = json.load(f)
-        return float(cfg.get("feed", {}).get("motor2_extra_feed_sec", default))
+        return cfg.get("feed", {})
     except Exception:
+        return {}
+
+_feed_cfg = read_feed_config()
+
+def feed_config_float(key, default):
+    try:
+        return float(_feed_cfg.get(key, default))
+    except (TypeError, ValueError):
         return default
 
-MOTOR2_EXTRA_FEED_SEC = read_config_value_motor2_extra_feed()
+def feed_config_int(key, default):
+    try:
+        return int(_feed_cfg.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+MOTOR2_EXTRA_FEED_SEC = feed_config_float("motor2_extra_feed_sec", 1.2)
+SENSOR1_CLEAR_TIMEOUT_SEC = feed_config_float("sensor1_clear_timeout_sec", SENSOR1_CLEAR_TIMEOUT_SEC)
+SENSOR2_BLOCK_TIMEOUT_SEC = feed_config_float("sensor2_block_timeout_sec", SENSOR2_BLOCK_TIMEOUT_SEC)
+FEED_CYCLE_MAX_ATTEMPTS = feed_config_int("max_attempts", FEED_CYCLE_MAX_ATTEMPTS)
 
 def capture_jam_snapshot(context):
     """

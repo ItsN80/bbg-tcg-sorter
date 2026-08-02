@@ -41,6 +41,7 @@ COUNTER_FILE = os.path.join(BASE_DIR, "counters", "move_count.txt")
 MONTHLY_COUNTER_FILE = os.path.join(BASE_DIR, "counters", "monthly_move_count.txt")
 FAILED_READS_FILE = os.path.join(BASE_DIR, "counters", "failed_reads.txt")
 CONFIG_FILE = os.path.join(BASE_DIR, "storage", "config.json")
+FEED_LOG_FILE = os.path.join(BASE_DIR, "storage", "feed_debug.log")
 BIN_INFO_FILE = os.path.join(BASE_DIR, "storage", "bin-info.json")
 BIN_INFO_DEFAULT_FILE = os.path.join(BASE_DIR, "storage", "bin-info-default.json")
 SCANNED_IMAGE_SRC = os.path.join(BASE_DIR, "storage", "scanned_card.png")
@@ -1232,6 +1233,20 @@ def settings():
                 except ValueError:
                     error = "Motor 2 Extra Feed Time must be a number (example: 1.2)."
                     return render_template("settings.html", config=config, error=error)
+            motor3_extra = request.form.get("motor3_extra_feed_sec", "").strip()
+            if motor3_extra != "":
+                try:
+                    config["feed"]["motor3_extra_feed_sec"] = float(motor3_extra)
+                except ValueError:
+                    error = "Motor 3 Extra Feed Time must be a number (example: 0.0)."
+                    return render_template("settings.html", config=config, error=error)
+            sensor1_block_timeout = request.form.get("sensor1_block_timeout_sec", "").strip()
+            if sensor1_block_timeout != "":
+                try:
+                    config["feed"]["sensor1_block_timeout_sec"] = float(sensor1_block_timeout)
+                except ValueError:
+                    error = "Phase 1 (Initial Feed-In) Timeout must be a number (example: 8.0)."
+                    return render_template("settings.html", config=config, error=error)
             sensor1_clear_timeout = request.form.get("sensor1_clear_timeout_sec", "").strip()
             if sensor1_clear_timeout != "":
                 try:
@@ -1256,6 +1271,7 @@ def settings():
                 except ValueError:
                     error = "Feed Cycle Max Attempts must be a whole number of 1 or more (example: 3)."
                     return render_template("settings.html", config=config, error=error)
+            config["feed"]["debug_logging"] = True if request.form.get("feed_debug_logging") else False
             if write_config(config):
                 return redirect(url_for("index"))
             else:
@@ -1323,6 +1339,41 @@ def failed_gallery():
         entries = []
 
     return render_template("failed.html", entries=entries)
+
+FEED_LOG_TAIL_LINES = 1000
+
+@app.route("/feed_log")
+def feed_log():
+    lines = []
+    if os.path.exists(FEED_LOG_FILE):
+        try:
+            with open(FEED_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()[-FEED_LOG_TAIL_LINES:]
+        except Exception as e:
+            lines = [f"Error reading log file: {e}\n"]
+    log_text = "".join(lines)
+    config = read_config()
+    logging_enabled = config.get("feed", {}).get("debug_logging", False)
+    return render_template(
+        "feed_log.html",
+        log_text=log_text,
+        logging_enabled=logging_enabled,
+        tail_lines=FEED_LOG_TAIL_LINES,
+    )
+
+@app.route("/feed_log/download")
+def feed_log_download():
+    if not os.path.exists(FEED_LOG_FILE):
+        return "No feed log file yet.", 404
+    return send_file(FEED_LOG_FILE, as_attachment=True, download_name="feed_debug.log")
+
+@app.route("/feed_log/clear", methods=["POST"])
+def feed_log_clear():
+    try:
+        open(FEED_LOG_FILE, "w").close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/camera_test", methods=["GET", "POST"])
 def camera_test():

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Feed Cycle Log</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --muted: #6b7a86;
+            --ink: #2c3e50;
+            --tile-bg: #eef1f4;
+        }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .page-header {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .top-bar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 8px 18px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: 1.5px solid transparent;
+            cursor: pointer;
+            background: var(--tile-bg);
+            color: var(--muted);
+            font-family: inherit;
+            text-decoration: none;
+        }
+        .pill:hover {
+            background: #e2e7eb;
+        }
+        .status-banner {
+            max-width: 1100px;
+            margin: 0 auto 14px auto;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        .status-banner.enabled {
+            background: #e8f6ec;
+            color: #1f7a1f;
+            border: 1px solid #c5e6cd;
+        }
+        .status-banner.disabled {
+            background: #fdf3e7;
+            color: #a05a00;
+            border: 1px solid #f0dcb8;
+        }
+        .content {
+            max-width: 1100px;
+            margin: auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        button, .btn {
+            padding: 8px 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            text-decoration: none;
+            display: inline-block;
+        }
+        button:hover, .btn:hover {
+            background-color: #2980b9;
+        }
+        #clear_btn {
+            background-color: #c0392b;
+        }
+        #clear_btn:hover {
+            background-color: #a5281b;
+        }
+        #clear_status {
+            margin-left: 10px;
+            font-size: 0.9rem;
+        }
+        pre {
+            background: #1e272e;
+            color: #d2dae2;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            max-height: 70vh;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 0.82rem;
+            line-height: 1.4;
+        }
+        .hint {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <div class="top-bar">
+            <a href="{{ url_for('index') }}" class="pill">Live Sorting</a>
+            <a href="{{ url_for('index') }}?tab=bins" class="pill">Bin Setup</a>
+            <a href="{{ url_for('settings') }}" class="pill">Settings</a>
+        </div>
+        <h1>Feed Cycle Log</h1>
+    </div>
+
+    {% if logging_enabled %}
+    <div class="status-banner enabled">Debug logging is ON — new feed cycles are being recorded.</div>
+    {% else %}
+    <div class="status-banner disabled">Debug logging is OFF. Enable "Feed Cycle Debug Logging" in Settings &rarr; Feed Cycle Tuning to start recording.</div>
+    {% endif %}
+
+    <div class="content">
+        <p class="hint">Showing the last {{ tail_lines }} lines. The log file rotates automatically at ~1MB.</p>
+        <div class="actions">
+            <button type="button" onclick="location.reload()">Refresh</button>
+            <a class="btn" href="{{ url_for('feed_log_download') }}">Download Full Log</a>
+            <button type="button" id="clear_btn">Clear Log</button>
+            <span id="clear_status"></span>
+        </div>
+        <pre id="log_text">{{ log_text if log_text else "(log is empty)" }}</pre>
+    </div>
+
+    <script>
+        document.getElementById("clear_btn").addEventListener("click", async () => {
+            if (!confirm("Clear the feed cycle log?")) return;
+            const statusEl = document.getElementById("clear_status");
+            statusEl.textContent = "Clearing...";
+            try {
+                const response = await fetch("{{ url_for('feed_log_clear') }}", { method: "POST" });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    statusEl.textContent = "Error: " + (data.error || `HTTP ${response.status}`);
+                    return;
+                }
+                statusEl.textContent = "Cleared.";
+                document.getElementById("log_text").textContent = "(log is empty)";
+            } catch (err) {
+                statusEl.textContent = "Error: " + err.message;
+            }
+        });
+    </script>
+</body>
+</html>

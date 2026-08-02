@@ -6,6 +6,8 @@ import sys
 import os
 import json
 import subprocess
+import logging
+from logging.handlers import RotatingFileHandler
 
 # -----------------------------
 # Pin Definitions (BCM)
@@ -26,7 +28,7 @@ SENSOR_BLOCKED_LEVEL = 1  # blocked = 1, clear = 0
 EXTRA_PULL_DELAY_SEC = 0.20  # adjust 0.10–0.40
 MOTOR2_STOP_SETTLE_SEC = 0.05  # small pause after stopping motor 2 (optional)
 
-SENSOR1_BLOCK_TIMEOUT_SEC = 8.0
+SENSOR1_BLOCK_TIMEOUT_SEC = 8.0  # Phase 1 (initial feed-in) timeout; overridden below from config
 SENSOR1_CLEAR_TIMEOUT_SEC = 5.0  # Phase 2 (anti-double-feed reverse) timeout; overridden below from config
 SENSOR2_BLOCK_TIMEOUT_SEC = 6.0  # Phase 3 (exit routing) timeout; overridden below from config
 FEED_CYCLE_MAX_ATTEMPTS = 3  # overridden below from config
@@ -119,9 +121,36 @@ def feed_config_int(key, default):
         return default
 
 MOTOR2_EXTRA_FEED_SEC = feed_config_float("motor2_extra_feed_sec", 1.2)
+MOTOR3_EXTRA_FEED_SEC = feed_config_float("motor3_extra_feed_sec", 0.0)
+SENSOR1_BLOCK_TIMEOUT_SEC = feed_config_float("sensor1_block_timeout_sec", SENSOR1_BLOCK_TIMEOUT_SEC)
 SENSOR1_CLEAR_TIMEOUT_SEC = feed_config_float("sensor1_clear_timeout_sec", SENSOR1_CLEAR_TIMEOUT_SEC)
 SENSOR2_BLOCK_TIMEOUT_SEC = feed_config_float("sensor2_block_timeout_sec", SENSOR2_BLOCK_TIMEOUT_SEC)
 FEED_CYCLE_MAX_ATTEMPTS = feed_config_int("max_attempts", FEED_CYCLE_MAX_ATTEMPTS)
+DEBUG_LOGGING = bool(_feed_cfg.get("debug_logging", False))
+
+# -----------------------------
+# Phase-by-phase debug logging (enabled via Settings -> Feed Cycle Tuning)
+# -----------------------------
+FEED_LOG_FILE = os.path.normpath(os.path.join(BASE_DIR, "..", "storage", "feed_debug.log"))
+
+feed_logger = logging.getLogger("feed_cycle")
+feed_logger.setLevel(logging.INFO)
+feed_logger.propagate = False
+if DEBUG_LOGGING:
+    _handler = RotatingFileHandler(FEED_LOG_FILE, maxBytes=1_000_000, backupCount=2)
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    feed_logger.addHandler(_handler)
+
+def log_event(event, **fields):
+    if not DEBUG_LOGGING:
+        return
+    try:
+        s1 = pi.read(sensor1_pin)
+        s2 = pi.read(sensor2_pin)
+    except Exception:
+        s1 = s2 = "?"
+    parts = [f"sensor1={s1}", f"sensor2={s2}"] + [f"{k}={v}" for k, v in fields.items()]
+    feed_logger.info(f"{event} | " + " ".join(parts))
 
 def capture_jam_snapshot(context):
     """
@@ -231,6 +260,8 @@ def run_feed_cycle(attempt_num):
     motor1_stop = threading.Event()
     motor2_stop = threading.Event()
     motor3_stop = threading.Event()
+    cycle_start = time.time()
+    log_event("cycle_start", attempt=attempt_num, max_attempts=FEED_CYCLE_MAX_ATTEMPTS)
     try:
         print(f"Starting motors 1, 2, 3 (Phase 1 feed) [attempt {attempt_num}/{FEED_CYCLE_MAX_ATTEMPTS}]")
         motor1_thread = threading.Thread(
@@ -254,14 +285,19 @@ def run_feed_cycle(attempt_num):
         motor2_thread.start()
         motor3_thread.start()
 
+        phase1_start = time.time()
+        log_event("phase1_wait_block_start", timeout_sec=SENSOR1_BLOCK_TIMEOUT_SEC)
         print("Waiting for Sensor 1 BLOCKED (high)...")
         ok = wait_for_level_stable(sensor1_pin, SENSOR_BLOCKED_LEVEL, SENSOR1_BLOCK_TIMEOUT_SEC, stable_ms=STABLE_TIME_MS)
+        phase1_duration = time.time() - phase1_start
         if not ok:
             print("Timeout: Sensor 1 did not go BLOCKED in time")
+            log_event("phase1_timeout", duration_sec=round(phase1_duration, 2))
             capture_jam_snapshot(f"sensor1_block_timeout_attempt_{attempt_num}")
             return False
 
         print("Sensor 1 BLOCKED (front edge detected)")
+        log_event("phase1_complete", duration_sec=round(phase1_duration, 2))
 
         # Stop Motor 1 promptly so it doesn't continue pulling a second card
         print("Stopping Motor 1 (immediately after sensor1 triggers)")
@@ -271,6 +307,7 @@ def run_feed_cycle(attempt_num):
         # to push more of the card through before we stop & reverse for anti-double-feed
         print(f"Keeping Motor 2 running for {MOTOR2_EXTRA_FEED_SEC:.1f}s after sensor1 triggers")
         time.sleep(MOTOR2_EXTRA_FEED_SEC)
+        log_event("motor2_extra_feed_complete", duration_sec=MOTOR2_EXTRA_FEED_SEC)
 
         print("Stopping Motor 2 (after extra feed time)")
         stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
@@ -295,6 +332,8 @@ def run_feed_cycle(attempt_num):
         motor1_thread.start()
         motor2_thread.start()
 
+        phase2_start = time.time()
+        log_event("phase2_wait_clear_start", timeout_sec=SENSOR1_CLEAR_TIMEOUT_SEC)
         print("Waiting for Sensor 1 CLEAR (low)...")
         ok = wait_for_level_stable(
             sensor1_pin,
@@ -302,25 +341,55 @@ def run_feed_cycle(attempt_num):
             SENSOR1_CLEAR_TIMEOUT_SEC,
             stable_ms=STABLE_TIME_MS
         )
+        phase2_duration = time.time() - phase2_start
         if not ok:
             print("Timeout: Sensor 1 did not CLEAR in time")
+            log_event("phase2_timeout", duration_sec=round(phase2_duration, 2))
             capture_jam_snapshot(f"sensor1_clear_timeout_attempt_{attempt_num}")
             return False
 
-        print("Sensor 1 CLEAR - stopping motors 1 & 2")
+        print("Sensor 1 CLEAR - stopping Motor 1")
+        log_event("phase2_complete", duration_sec=round(phase2_duration, 2))
         stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
         stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
 
-        # Motor 3 continues until sensor2 trips
+        # Phase 3: drive the card the rest of the way to Sensor 2. Motor 2 restarts
+        # in its normal (Phase 1) forward direction alongside Motor 3, which has
+        # been running the whole time, instead of relying on Motor 3 alone.
+        print("Starting Phase 3 feed (Motor 2 + Motor 3 forward) toward Sensor 2")
+        motor2_stop.clear()
+        motor2_thread = threading.Thread(
+            target=motor_step_sequence,
+            args=(MOTOR_2_PINS, STEPPER_SEQ_HALFSPEED, motor2_stop, MOTOR2_FWD_DELAY, True),
+            daemon=True
+        )
+        motor2_thread.start()
+
+        phase3_start = time.time()
+        log_event("phase3_wait_block_start", timeout_sec=SENSOR2_BLOCK_TIMEOUT_SEC)
         print("Waiting for Sensor 2 BLOCKED (high)...")
         ok = wait_for_level_stable(sensor2_pin, SENSOR_BLOCKED_LEVEL, SENSOR2_BLOCK_TIMEOUT_SEC, stable_ms=STABLE_TIME_MS)
+        phase3_duration = time.time() - phase3_start
         if not ok:
             print("Timeout: Sensor 2 did not go BLOCKED in time")
+            log_event("phase3_timeout", duration_sec=round(phase3_duration, 2))
             capture_jam_snapshot(f"sensor2_block_timeout_attempt_{attempt_num}")
             return False
 
-        print("Sensor 2 BLOCKED - stopping Motor 3")
+        print("Sensor 2 BLOCKED")
+        log_event("phase3_complete", duration_sec=round(phase3_duration, 2))
+
+        # Keep Motors 2 & 3 running briefly after sensor2 triggers to push the card
+        # fully clear before stopping (tune if the physical path changes).
+        if MOTOR3_EXTRA_FEED_SEC > 0:
+            print(f"Keeping Motors 2 & 3 running for {MOTOR3_EXTRA_FEED_SEC:.2f}s after sensor2 triggers")
+            time.sleep(MOTOR3_EXTRA_FEED_SEC)
+            log_event("motor3_extra_feed_complete", duration_sec=MOTOR3_EXTRA_FEED_SEC)
+
+        print("Stopping Motors 2 & 3")
+        stop_motor(MOTOR_2_PINS, motor2_stop, motor2_thread)
         stop_motor(MOTOR_3_PINS, motor3_stop, motor3_thread)
+        log_event("cycle_success", total_duration_sec=round(time.time() - cycle_start, 2))
         return True
     finally:
         stop_motor(MOTOR_1_PINS, motor1_stop, motor1_thread)
@@ -340,10 +409,12 @@ try:
     success = run_feed_attempt_block()
 
     if not success:
+        log_event("recovery_sequence_start")
         run_recovery_sequence()
         print("Retrying feed cycle attempts after recovery sequence...")
         success = run_feed_attempt_block()
 
+    log_event("run_complete", success=success)
     pi.stop()
     print("0" if success else "1")
     sys.exit(0 if success else 1)

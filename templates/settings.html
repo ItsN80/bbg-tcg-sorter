@@ -349,6 +349,13 @@
         <details class="section"{% if error %} open{% endif %}>
             <summary>Feed Cycle Tuning</summary>
             <div class="accordion-body">
+                <label for="sensor1_block_timeout_sec">Phase 1 - Initial Feed-In Timeout (seconds):</label>
+                <input type="text" id="sensor1_block_timeout_sec" name="sensor1_block_timeout_sec" value="{{ config.get('feed', {}).get('sensor1_block_timeout_sec', 8.0) }}">
+
+                <p style="margin-top:8px; opacity:0.8;">
+                    How long to wait for Sensor 1 to first go BLOCKED (card reaches the feed sensor) before the attempt is considered a failure.
+                </p>
+
                 <label for="motor2_extra_feed_sec">Phase 1 - Motor 2 Extra Feed Time (seconds):</label>
                 <input type="text" id="motor2_extra_feed_sec" name="motor2_extra_feed_sec" value="{{ config.get('feed', {}).get('motor2_extra_feed_sec', 1.2) }}">
 
@@ -367,7 +374,14 @@
                 <input type="text" id="sensor2_block_timeout_sec" name="sensor2_block_timeout_sec" value="{{ config.get('feed', {}).get('sensor2_block_timeout_sec', 6.0) }}">
 
                 <p style="margin-top:8px; opacity:0.8;">
-                    How long to wait for Sensor 2 (exit sensor) to trigger before the attempt is considered a failure.
+                    Once Sensor 1 clears, Motors 2 &amp; 3 run forward together to push the card into Sensor 2. How long to wait for Sensor 2 to trigger before the attempt is considered a failure.
+                </p>
+
+                <label for="motor3_extra_feed_sec">Phase 3 - Motor 2/3 Extra Feed Time (seconds):</label>
+                <input type="text" id="motor3_extra_feed_sec" name="motor3_extra_feed_sec" value="{{ config.get('feed', {}).get('motor3_extra_feed_sec', 0.0) }}">
+
+                <p style="margin-top:8px; opacity:0.8;">
+                    After Sensor 2 is triggered, Motors 2 &amp; 3 will continue running for this many seconds before stopping (useful for pushing the card past a physical obstruction; set to 0 to stop immediately).
                 </p>
 
                 <label for="feed_max_attempts">Feed Cycle Max Attempts:</label>
@@ -376,6 +390,14 @@
                 <p style="margin-top:8px; opacity:0.8;">
                     Number of attempts per feed cycle round. A single feed cycle runs up to two rounds of this many attempts each (a recovery sequence runs between rounds), so the total attempts before giving up is double this value.
                 </p>
+
+                <label><input type="checkbox" name="feed_debug_logging" {% if config.get('feed', {}).get('debug_logging') %}checked{% endif %}> Enable Feed Cycle Debug Logging</label>
+                <p style="margin-top:8px; opacity:0.8;">
+                    Logs each phase's start/stop, duration, and live Sensor 1 / Sensor 2 values to a file for diagnosing jams and timing issues. Adds a small amount of disk I/O per feed, so leave off unless actively debugging.
+                </p>
+                <div class="inline-row" style="margin-top: 10px;">
+                    <a href="{{ url_for('feed_log') }}" target="_blank"><button type="button">View Feed Log</button></a>
+                </div>
             </div>
         </details>
 

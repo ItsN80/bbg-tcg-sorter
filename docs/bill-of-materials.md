@@ -11,4 +11,21 @@ Electronic components used in the BBG TCG Sorter, with vendor and marketplace li
 | LM393 photoelectric (break-beam) sensor | — | [Link](https://www.amazon.com/dp/B09WTJ9QRR) | [Link](https://www.amazon.co.uk/Youmile-Correlation-Photoelectric-Opposite-type-Infrared/dp/B09WTH1PFH) | 1 | 2 |
 | PWM Servo Motor Driver HAT | — | [Link](https://www.amazon.com/dp/B0D63DPNK1) | [Link](https://www.amazon.co.uk/Waveshare-16-Channel-Servo-Driver-HAT/dp/B07GYFTKZD) | 1 | 1 |
 
-> Note: links point to the exact models tested with this build. Equivalent parts may work but haven't been validated against the assembly guide's wiring and mounting steps.
+> Note: the build was assembled and tested with the exact versions linked in the US store. UK Amazon links are matched as closely as possible to the US parts but may not be identical models.
+
+## LEGO / BrickLink Pieces
+
+| Item | Item No. | Qty |
+|---|---|---|
+| Tire 62.4 x 20 S | [32019](https://www.bricklink.com/v2/catalog/catalogitem.page?P=32019) | 6 |
+| Wheel 43.2mm D. x 18mm — Extended Axle Stem | [32020](https://www.bricklink.com/v2/catalog/catalogitem.page?P=32020) | 6 |
+| Technic Axle 9L | [60485](https://www.bricklink.com/v2/catalog/catalogitem.page?P=60485) | 6 |
+| Technic Axle Connector 2L (Smooth) | [6538c](https://www.bricklink.com/v2/catalog/catalogitem.page?P=6538c) / [59443](https://www.bricklink.com/v2/catalog/catalogitem.page?P=59443) | 3 |
+
+## Hardware
+
+| Item | Qty | Link |
+|---|---|---|
+| Assorted Dupont jumper wire kit (M-M / M-F / F-F, various lengths) — for wiring the servos and steppers | 1 | [link](#) |
+| M2–M5 metric screw/bolt assortment kit (hex socket) — for mounting the 3 motors | 1 | [link](#) |
+| IKEA SKÅDIS pegboard, 30x22", black (mounting surface for the build) | 2 | [Link](https://www.ikea.com/us/en/p/skadis-pegboard-black-50534378/) |

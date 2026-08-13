@@ -1,4 +1,4 @@
-# Bill of Materials & Sourcing
+# Bill of Materials
 
 Electronic components used in the BBG TCG Sorter, with vendor and marketplace links. Quantities are per single sorter build.
 

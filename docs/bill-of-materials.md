@@ -20,7 +20,7 @@ Electronic components used in the BBG TCG Sorter, with vendor and marketplace li
 | Tire 62.4 x 20 S | [32019](https://www.bricklink.com/v2/catalog/catalogitem.page?P=32019) | 6 |
 | Wheel 43.2mm D. x 18mm — Extended Axle Stem | [32020](https://www.bricklink.com/v2/catalog/catalogitem.page?P=32020) | 6 |
 | Technic Axle 9L | [60485](https://www.bricklink.com/v2/catalog/catalogitem.page?P=60485) | 6 |
-| Technic Axle Connector 2L (Smooth) | [6538c](https://www.bricklink.com/v2/catalog/catalogitem.page?P=6538c) / [59443](https://www.bricklink.com/v2/catalog/catalogitem.page?P=59443) | 3 |
+| Technic Axle Connector 2L (Smooth) | [6538c](https://www.bricklink.com/v2/catalog/catalogitem.page?P=6538c) | 3 |
 
 ## Hardware
 

@@ -24,8 +24,8 @@ Electronic components used in the BBG TCG Sorter, with vendor and marketplace li
 
 ## Hardware
 
-| Item | Qty | Link |
-|---|---|---|
-| Assorted Dupont jumper wire kit (M-M / M-F / F-F, various lengths) — for wiring the servos and steppers | 1 | [link](#) |
-| M2–M5 metric screw/bolt assortment kit (hex socket) — for mounting the 3 motors | 1 | [link](#) |
-| IKEA SKÅDIS pegboard, 30x22", black (mounting surface for the build) | 2 | [Link](https://www.ikea.com/us/en/p/skadis-pegboard-black-50534378/) |
+| Item | Vendor Direct | US Amazon | UK Amazon | Qty |
+|---|---|---|---|---|
+| Assorted Dupont jumper wire kit (M-M / M-F / F-F, various lengths) — for wiring the servos and steppers | — | [Link](https://www.amazon.com/Elegoo-EL-CP-004-Multicolored-Breadboard-arduino/dp/B01EV70C78) | [Link](https://www.amazon.co.uk/Elegoo-120pcs-Multicolored-Breadboard-arduino-colorful/dp/B01EV70C78) | 1 |
+| M2–M5 metric screw/bolt assortment kit (hex socket) — for mounting the 3 motors | — | [Link](https://www.amazon.com/1760pcs-Metric-Assortment-Upgrade-Wrenches/dp/B0C38YFL3D) | [Link](https://www.amazon.co.uk/1200pcs-Precision-Machine-Assortment-Organised/dp/B0G2PC78XH) | 1 |
+| IKEA SKÅDIS pegboard, 30x22", black (mounting surface for the build) | [Link](https://www.ikea.com/us/en/p/skadis-pegboard-black-50534378/) | — | — | 2 |

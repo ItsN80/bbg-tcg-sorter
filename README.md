@@ -11,8 +11,8 @@ Flask web UI runs the whole thing and exposes live status, bin rules, and settin
 Build Instructions located at: https://itsn80.github.io/bbg-tcg-sorter/assembly-guide/
 
 This is a hobbyist project shared as-is under the AGPLv3 license (see [LICENSE](LICENSE)).
-It assumes you're comfortable with basic Raspberry Pi setup, soldering/wiring, and a
-little troubleshooting — it is not a polished consumer product.
+It assumes you're comfortable with basic Raspberry Pi setup, wiring with plug connectors 
+(no soldering required), and some troubleshooting.
 
 ---
 

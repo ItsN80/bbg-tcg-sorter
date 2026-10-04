@@ -1,0 +1,92 @@
+{
+    "schema_version": 1,
+    "id": "mtg",
+    "name": "Magic: The Gathering",
+    "recognition": {
+        "prompt": "You are identifying a Magic: The Gathering card from an image.\nReturn ONLY valid JSON with these keys:\ncard_name (string or null), set_code (string or null), collector_number (string or null), confidence (number 0.0 to 1.0).\ncard_name must be the printed card title, not the type line.\nIf text is unclear or confidence is low, return null values.\nDo NOT guess.\nDo not include any extra text.\n",
+        "keys": ["card_name", "set_code", "collector_number"],
+        "normalize": {"set_code": "set_code", "collector_number": "digits"},
+        "set_code": {"min_length": 3, "max_length": 5},
+        "reject_name_words": [
+            "artifact", "battle", "conspiracy", "creature", "dungeon",
+            "emblem", "enchantment", "instant", "kindred", "land",
+            "phenomenon", "plane", "planeswalker", "scheme", "sorcery",
+            "tribal", "vanguard"
+        ],
+        "require_when_filtered": {
+            "filters": ["set_symbol"],
+            "keys": ["set_code", "collector_number"]
+        },
+        "aws": {
+            "patterns": {
+                "collector_number": "[A-Za-z]?\\s*(\\d{3,4})",
+                "set_code": "\\b([A-Za-z]{3})\\b"
+            }
+        }
+    },
+    "lookup": {
+        "type": "scryfall"
+    },
+    "display": {
+        "name": "name",
+        "set": "set_symbol",
+        "number": "collector_number",
+        "image": "card_identified_url"
+    },
+    "placeholder_image": "https://cards.scryfall.io/large/front/f/a/fae9abc7-ecd3-4042-a5b0-5f2b24491fa6.jpg?1562258009",
+    "filters": [
+        {
+            "key": "name",
+            "label": "Name (e.g., a or a-c)",
+            "kind": "name_range",
+            "field": "name"
+        },
+        {
+            "key": "type_tags",
+            "label": "Type",
+            "kind": "multi",
+            "field": "type",
+            "match": "all_substr",
+            "legacy_key": "type",
+            "columns": 2,
+            "options": ["Legendary", "Snow", "Token", "Basic", "Artifact", "Enchantment", "Creature", "Instant", "Sorcery", "Land", "Planeswalker", "Battle"]
+        },
+        {
+            "key": "colors",
+            "label": "Colors",
+            "kind": "multi",
+            "field": "color_identity",
+            "fallback_field": "colors",
+            "match": "exact_set",
+            "empty_token": "C",
+            "columns": 3,
+            "summary_joiner": "",
+            "summary_values": true,
+            "options": [
+                {"value": "W", "label": "White", "icon": "https://svgs.scryfall.io/card-symbols/W.svg"},
+                {"value": "U", "label": "Blue", "icon": "https://svgs.scryfall.io/card-symbols/U.svg"},
+                {"value": "B", "label": "Black", "icon": "https://svgs.scryfall.io/card-symbols/B.svg"},
+                {"value": "R", "label": "Red", "icon": "https://svgs.scryfall.io/card-symbols/R.svg"},
+                {"value": "G", "label": "Green", "icon": "https://svgs.scryfall.io/card-symbols/G.svg"},
+                {"value": "C", "label": "Colorless", "icon": "https://svgs.scryfall.io/card-symbols/C.svg"}
+            ]
+        },
+        {
+            "key": "cmc",
+            "label": "Converted Mana Cost (CMC)",
+            "kind": "number",
+            "field": "cmc",
+            "summary_prefix": "CMC "
+        },
+        {
+            "key": "set_symbol",
+            "label": "Set Symbol (3 characters)",
+            "kind": "text",
+            "field": "set_symbol",
+            "match": "contains_ci",
+            "maxlength": 3,
+            "summary_upper": true
+        }
+    ],
+    "summary": ["name", "type_tags", "cmc", "set_symbol", "colors"]
+}

@@ -1,0 +1,12 @@
+{
+    "1": {"name": "", "types": ["Attack action"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "2": {"name": "", "types": ["Attack reaction"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "3": {"name": "", "types": ["Defense reaction", "Block"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "4": {"name": "", "types": ["Action"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "5": {"name": "", "types": ["Instant"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "6": {"name": "", "types": ["Equipment"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "7": {"name": "", "types": ["Weapon"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "8": {"name": "", "types": ["Hero", "Ally", "Demi-Hero", "Mentor"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "9": {"name": "", "types": ["Resource", "Token"], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []},
+    "10": {"name": "", "types": [], "classes": [], "talents": [], "pitch": [], "cost": "", "set": "", "rarity": []}
+}

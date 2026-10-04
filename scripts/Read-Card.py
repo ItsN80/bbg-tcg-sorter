@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
+import contextlib
 import json
 import os
-import re
-import time
 from datetime import datetime
 from picamera2 import Picamera2
 from PIL import Image
@@ -14,19 +13,21 @@ import sys
 
 # Base directory of the script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.normpath(os.path.join(BASE_DIR, ".."))
+for _p in (BASE_DIR, REPO_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-# Default Ollama recognition prompt; overridable via config["ollama"]["prompt"]
-# from the Settings page.
-DEFAULT_OLLAMA_PROMPT = (
-    "You are identifying a Magic: The Gathering card from an image.\n"
-    "Return ONLY valid JSON with these keys:\n"
-    "card_name (string or null), set_code (string or null), "
-    "collector_number (string or null), confidence (number 0.0 to 1.0).\n"
-    "card_name must be the printed card title, not the type line.\n"
-    "If text is unclear or confidence is low, return null values.\n"
-    "Do NOT guess.\n"
-    "Do not include any extra text.\n"
+import games  # noqa: E402  (repo root: game registry, no hardware imports)
+import recognition  # noqa: E402  (scripts/: pure recognition helpers)
+from recognition import (  # noqa: E402,F401  (re-exported for backwards compatibility)
+    UNKNOWN,
+    clean_collector_number,
+    clean_set_code,
+    looks_like_type_line,
+    parse_first_json_object,
 )
+from lookups import lookup_card  # noqa: E402
 
 # Paths relative to the script location
 output_directory = os.path.normpath(os.path.join(BASE_DIR, "..", "storage"))
@@ -76,8 +77,27 @@ def debug_log(enabled, message):
     if enabled:
         print(f"[READ-CARD DEBUG] {message}", file=sys.stderr)
 
-# Set up the camera
-camera = Picamera2()
+def load_active_game():
+    """
+    Active game from env SORTER_GAME (default "mtg"), via the games registry.
+    games.load_games() may print warnings about broken packs; keep those off
+    stdout, which is reserved for the single JSON result line.
+    """
+    requested = (os.environ.get("SORTER_GAME") or games.DEFAULT_GAME_ID).strip()
+    with contextlib.redirect_stdout(sys.stderr):
+        # strict: an unknown/broken pack must fail the read (card goes to bin 10)
+        # rather than silently looking the card up as another game.
+        return games.get_game(requested, strict=True)
+
+# Camera is created lazily (first capture) so this module can be imported
+# without opening the camera.
+camera = None
+
+def get_camera():
+    global camera
+    if camera is None:
+        camera = Picamera2()
+    return camera
 
 def get_filename():
     """Generate a timestamped filename."""
@@ -85,123 +105,9 @@ def get_filename():
     return f"image_{timestamp}.jpg"
 
 
-def clean_collector_number(raw: str) -> str:
-    """
-    Extracts the first digit group from a collector number string.
-    Examples:
-      'A123' -> '123'
-      '123/287' -> '123'
-      '0123' -> '123'
-      '123a' -> '123'
-    """
-    if not raw:
-        return "Unknown"
-
-    s = str(raw).strip()
-
-    m = re.search(r'(\d+)', s)
-    if not m:
-        return "Unknown"
-
-    digits = m.group(1)
-
-    # Normalize leading zeros: '000' -> '0', '0123' -> '123'
-    try:
-        return str(int(digits))
-    except ValueError:
-        return digits
-
-def clean_set_code(raw: str) -> str:
-    """
-    Normalize set code strings coming from OCR/LLM.
-    Examples:
-      'BLC-EN' -> 'BLC'
-      ' blc '  -> 'BLC'
-      'BLC/EN' -> 'BLC'
-      None/'Unknown' -> 'Unknown'
-    """
-    if not raw:
-        return "Unknown"
-
-    s = str(raw).strip().upper()
-    if s in ("UNKNOWN", "N/A", "NONE", "NULL", ""):
-        return "Unknown"
-
-    # Keep only the first alphanumeric token (split on - / space etc.)
-    token = re.split(r'[^A-Z0-9]+', s)[0].strip()
-
-    # Scryfall set codes are typically 3–5 chars; keep within that range
-    if len(token) < 3:
-        return "Unknown"
-    if len(token) > 5:
-        token = token[:5]
-
-    # Reject all-digit tokens (common OCR/LLM artifact like "304")
-    if not re.search(r"[A-Z]", token):
-        return "Unknown"
-
-    return token
-
-def looks_like_type_line(name: str) -> bool:
-    """
-    Heuristic filter for cases where the model reads the type line
-    (e.g. "Creature - Human Wizard") instead of card name.
-    """
-    if not name:
-        return False
-
-    n = name.strip().lower()
-    type_words = {
-        "artifact", "battle", "conspiracy", "creature", "dungeon",
-        "emblem", "enchantment", "instant", "kindred", "land",
-        "phenomenon", "plane", "planeswalker", "scheme", "sorcery",
-        "tribal", "vanguard"
-    }
-
-    # Typical MTG type-line separators
-    if " - " in n or " — " in n:
-        first = re.split(r"\s[-—]\s", n, maxsplit=1)[0].strip()
-        if first in type_words:
-            return True
-
-    # Also reject direct single-type outputs like "Creature"
-    return n in type_words
-
 def image_to_base64(image_path: str) -> str:
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
-
-def parse_first_json_object(text: str):
-    """
-    Parse the first JSON object from a string.
-    Handles model outputs that include prose before/after JSON.
-    """
-    if not isinstance(text, str):
-        raise ValueError("Response text is not a string")
-
-    s = text.strip()
-    if not s:
-        raise ValueError("Empty response text")
-
-    decoder = json.JSONDecoder()
-
-    # Fast path: pure JSON payload.
-    try:
-        return decoder.decode(s)
-    except json.JSONDecodeError:
-        pass
-
-    # Fallback: scan for the first '{' and attempt raw_decode from there.
-    for i, ch in enumerate(s):
-        if ch != "{":
-            continue
-        try:
-            obj, _ = decoder.raw_decode(s[i:])
-            return obj
-        except json.JSONDecodeError:
-            continue
-
-    raise ValueError("No valid JSON object found in response")
 
 def capture_image(config):
     """Captures an image using Picamera2 and processes it."""
@@ -211,18 +117,19 @@ def capture_image(config):
     debug_log(dbg, f"Starting image capture. raw_file={raw_file} processed_file={processed_file}")
 
     # Ensure the camera is initialized
+    cam = get_camera()
     camera_info = Picamera2.global_camera_info()
     if not camera_info:
         raise RuntimeError("No cameras found!")
     debug_log(dbg, f"Cameras detected: {len(camera_info)}")
 
     # Configure, capture, then stop the camera
-    camera.configure(camera.create_preview_configuration(
+    cam.configure(cam.create_preview_configuration(
         main={"format": "RGB888", "size": (1920, 1080)}))
     debug_log(dbg, "Camera configured for 1920x1080 RGB preview capture")
-    camera.start()
-    camera.capture_file(raw_file)
-    camera.stop()
+    cam.start()
+    cam.capture_file(raw_file)
+    cam.stop()
     debug_log(dbg, "Image captured and camera stopped")
 
     provider = (config.get("recognition_provider") or "aws").lower().strip()
@@ -234,7 +141,7 @@ def capture_image(config):
         #shutil.copy(raw_file, processed_file)
         os.remove(raw_file)
         return processed_file
- 
+
 
     # AWS path: keep your existing crop+rotate behavior
     crop_and_rotate_image(raw_file, processed_file)
@@ -258,11 +165,13 @@ def rotate_image(input_file, output_file):
         rotated_img = img.rotate(90, expand=True)
         rotated_img.save(output_file)
 
-def crop_combined_areas(image_path, config):
+def crop_combined_areas(image_path, crop_cfg):
+    """crop_cfg: {"top_crop": {x1,y1,x2,y2}, "bottom_crop": {...}} from
+    games.resolve_camera_crop(); missing values fall back to the defaults below."""
     with Image.open(image_path) as img:
-        crop_cfg = config.get("camera_crop", {})
-        top = crop_cfg.get("top_crop", {})
-        bot = crop_cfg.get("bottom_crop", {})
+        crop_cfg = crop_cfg or {}
+        top = crop_cfg.get("top_crop", {}) or {}
+        bot = crop_cfg.get("bottom_crop", {}) or {}
 
         crop1 = img.crop((top.get("x1", 160), top.get("y1", 155),
                           top.get("x2", 577), top.get("y2", 235)))
@@ -285,8 +194,8 @@ def crop_combined_areas(image_path, config):
 
 def detect_text_combined(image_path, crop1_height, aws_config):
     """
-    Runs AWS Rekognition on the combined image and separates OCR results
-    into top (card name) and bottom (collector number & set code) parts.
+    Runs AWS Rekognition on the combined image and separates OCR LINE results
+    into top (card name) and bottom (set / number etc.) lists.
     """
     aws_access_key_id = aws_config.get("access_key_id")
     aws_secret_access_key = aws_config.get("secret_access_key")
@@ -319,202 +228,7 @@ def detect_text_combined(image_path, crop1_height, aws_config):
             else:
                 bottom_lines.append(detection['DetectedText'])
 
-    # Card name from the top region
-    card_name = " ".join(top_lines).strip() if top_lines else "Unknown"
-
-    # For the bottom region, join the lines and use regex to get collector number and set code
-    bottom_text = " ".join(bottom_lines)
-
-    # Adjust the regex pattern as needed. Here we look for an optional letter and a 3- or 4-digit number.
-    collector_pattern = r'[A-Za-z]?\s*(\d{3,4})'
-    collector_match = re.search(collector_pattern, bottom_text)
-    collector_number = collector_match.group(1) if collector_match else "Unknown"
-
-    # Extract 3-letter set code
-    set_match = re.search(r'\b([A-Za-z]{3})\b', bottom_text)
-    set_code = set_match.group(1).upper() if set_match else "Unknown"
-
-    return card_name, collector_number, set_code
-
-def fetch_card_info(card_name, set_code, collector_number, dbg=False):
-    if not card_name or card_name.lower() in {"unknown", "null", "none", "n/a"}:
-        return None, [{"stage": "skipped", "url": None, "status_code": None,
-                       "details": "card_name unknown — Scryfall lookup skipped", "error": None}]
-
-    scryfall_attempts = []
-    scryfall_timeout_seconds = 30
-    scryfall_max_attempts = 3
-
-    def record_attempt(stage, url, status_code=None, details=None, error=None):
-        scryfall_attempts.append({
-            "stage": stage,
-            "url": url,
-            "status_code": status_code,
-            "details": details,
-            "error": error
-        })
-
-    def scryfall_get_with_retries(stage, url, params=None):
-        last_error = None
-        for attempt in range(1, scryfall_max_attempts + 1):
-            try:
-                debug_log(
-                    dbg,
-                    (
-                        f"Scryfall request [{stage}] attempt {attempt}/{scryfall_max_attempts}: "
-                        f"url={url} params={params}"
-                    )
-                )
-                response = requests.get(url, params=params, timeout=scryfall_timeout_seconds,
-                                        headers={"User-Agent": "bbg-tcg-sorter/1.0"})
-                return response, None
-            except requests.RequestException as e:
-                last_error = str(e)
-                debug_log(
-                    dbg,
-                    (
-                        f"Scryfall request [{stage}] attempt {attempt}/{scryfall_max_attempts} failed: "
-                        f"{last_error}"
-                    )
-                )
-                if attempt < scryfall_max_attempts:
-                    sleep_seconds = attempt
-                    debug_log(dbg, f"Scryfall retry sleep: {sleep_seconds}s")
-                    time.sleep(sleep_seconds)
-        return None, last_error
-
-    # Normalize inputs
-    set_code_clean = clean_set_code(set_code)
-    collector_number_clean = clean_collector_number(collector_number)
-    debug_log(
-        dbg,
-        (
-            "Scryfall lookup inputs: "
-            f"card_name='{card_name}', set_code_raw='{set_code}', collector_raw='{collector_number}', "
-            f"set_code_clean='{set_code_clean}', collector_clean='{collector_number_clean}'"
-        )
-    )
-
-    # 1) Best match: exact by set + collector number
-    if set_code_clean and set_code_clean != "Unknown" and collector_number_clean != "Unknown":
-        exact_url = f"https://api.scryfall.com/cards/{set_code_clean}/{collector_number_clean}"
-        #print(
-        #    f"[SCRYFALL EXACT] name='{card_name}', set='{set_code_clean}', "
-        #    f"collector='{collector_number_clean}', url={exact_url}"
-        #)
-
-        try:
-            r, req_error = scryfall_get_with_retries("exact", exact_url)
-            if req_error:
-                record_attempt("exact", exact_url, error=req_error)
-                r = None
-            if r is None:
-                raise requests.RequestException(req_error or "Unknown request error")
-            if r.status_code == 200:
-                data = r.json()
-                record_attempt("exact", exact_url, status_code=r.status_code, details="ok")
-                return {
-                    "name": data.get("name", "Unknown"),
-                    "type": data.get("type_line", "Type not found"),
-                    "colors": data.get("colors", []),
-                    "color_identity": data.get("color_identity", data.get("colors", [])),
-                    "cmc": data.get("cmc", "CMC not found"),
-                    "set_symbol": data.get("set", "Set not found"),
-                    "collector_number": data.get("collector_number", collector_number_clean),
-                    "card_identified_url": data.get("image_uris", {}).get("normal", "")
-                }, scryfall_attempts
-
-            # If exact lookup fails (bad set/collector), fall through to fuzzy
-            try:
-                err = r.json()
-                record_attempt("exact", exact_url, status_code=r.status_code, details=err.get("details", ""))
-                print(f"[SCRYFALL EXACT FAILED] status={r.status_code} details={err.get('details', '')}", file=sys.stderr)
-            except Exception:
-                record_attempt("exact", exact_url, status_code=r.status_code, details="non-json error body")
-                print(f"[SCRYFALL EXACT FAILED] status={r.status_code}", file=sys.stderr)
-        except requests.RequestException:
-            pass
-
-    # 2) Fallback: fuzzy by name (optionally constrain by set)
-    fuzzy_base_url = "https://api.scryfall.com/cards/named"
-    if set_code_clean and set_code_clean != "Unknown":
-        fuzzy_params = {"fuzzy": card_name, "set": set_code_clean}
-        stage = "fuzzy_set"
-    else:
-        fuzzy_params = {"fuzzy": card_name}
-        stage = "fuzzy"
-
-    #print(
-    #    f"[SCRYFALL FUZZY] name='{card_name}', set='{set_code_clean or 'None'}', "
-    #    f"collector='{collector_number_clean}', url={url}"
-    #)
-
-    try:
-        response, req_error = scryfall_get_with_retries(stage, fuzzy_base_url, params=fuzzy_params)
-        if req_error:
-            record_attempt(stage, fuzzy_base_url, error=req_error)
-            response = None
-        if response is None:
-            raise requests.RequestException(req_error or "Unknown request error")
-        if response.status_code == 200:
-            data = response.json()
-            record_attempt(stage, response.url, status_code=response.status_code, details="ok")
-            return {
-                "name": data.get("name", "Unknown"),
-                "type": data.get("type_line", "Type not found"),
-                "colors": data.get("colors", []),
-                "color_identity": data.get("color_identity", data.get("colors", [])),
-                "cmc": data.get("cmc", "CMC not found"),
-                "set_symbol": data.get("set", "Set not found"),
-                "collector_number": data.get("collector_number", "Unknown"),
-                "card_identified_url": data.get("image_uris", {}).get("normal", "")
-            }, scryfall_attempts
-        try:
-            err = response.json()
-            record_attempt(stage, response.url, status_code=response.status_code, details=err.get("details", ""))
-        except Exception:
-            record_attempt(stage, response.url, status_code=response.status_code, details="non-json error body")
-    except requests.RequestException:
-        pass
-
-    # 3) Last fallback: fuzzy without set constraint (if set-constrained fuzzy failed)
-    fallback_url = "https://api.scryfall.com/cards/named"
-    fallback_params = {"fuzzy": card_name}
-    if stage == "fuzzy_set":
-        #print(f"[SCRYFALL FUZZY FALLBACK] url={fallback_url}")
-        try:
-            fallback_response, req_error = scryfall_get_with_retries(
-                "fuzzy_fallback",
-                fallback_url,
-                params=fallback_params
-            )
-            if req_error:
-                record_attempt("fuzzy_fallback", fallback_url, error=req_error)
-                fallback_response = None
-            if fallback_response is None:
-                raise requests.RequestException(req_error or "Unknown request error")
-            if fallback_response.status_code == 200:
-                data = fallback_response.json()
-                record_attempt("fuzzy_fallback", fallback_response.url, status_code=fallback_response.status_code, details="ok")
-                return {
-                    "name": data.get("name", "Unknown"),
-                    "type": data.get("type_line", "Type not found"),
-                    "colors": data.get("colors", []),
-                    "color_identity": data.get("color_identity", data.get("colors", [])),
-                    "cmc": data.get("cmc", "CMC not found"),
-                    "set_symbol": data.get("set", "Set not found"),
-                    "collector_number": data.get("collector_number", "Unknown"),
-                    "card_identified_url": data.get("image_uris", {}).get("normal", "")
-                }, scryfall_attempts
-            try:
-                err = fallback_response.json()
-                record_attempt("fuzzy_fallback", fallback_response.url, status_code=fallback_response.status_code, details=err.get("details", ""))
-            except Exception:
-                record_attempt("fuzzy_fallback", fallback_response.url, status_code=fallback_response.status_code, details="non-json error body")
-        except requests.RequestException:
-            pass
-
-    return None, scryfall_attempts
+    return top_lines, bottom_lines
 
 
 def cleanup_images(*file_paths):
@@ -523,24 +237,21 @@ def cleanup_images(*file_paths):
         if os.path.exists(file_path):
             os.remove(file_path)
 
-def recognize_with_aws(processed_image, config):
+def recognize_with_aws(processed_image, config, game):
     dbg = debug_enabled(config)
     debug_log(dbg, f"Running AWS recognition with processed_image={processed_image}")
     aws_config = config.get("aws", {})
-    combined_image, crop1_height = crop_combined_areas(processed_image, config)
+    crop_cfg = games.resolve_camera_crop(game, config)
+    combined_image, crop1_height = crop_combined_areas(processed_image, crop_cfg)
     debug_log(dbg, f"Combined crop image created: {combined_image} (split at y={crop1_height})")
-    card_name, collector_number, set_code = detect_text_combined(combined_image, crop1_height, aws_config)
-    debug_log(
-        dbg,
-        (
-            "AWS recognition result: "
-            f"card_name='{card_name}', set_code='{set_code}', collector_number='{collector_number}'"
-        )
-    )
-    return card_name, collector_number, set_code
+    top_lines, bottom_lines = detect_text_combined(combined_image, crop1_height, aws_config)
+    debug_log(dbg, f"AWS text: top={top_lines} bottom={bottom_lines}")
+    result = recognition.extract_aws_fields(top_lines, bottom_lines, game)
+    debug_log(dbg, f"AWS recognition result: {json.dumps(result)}")
+    return result
 
 
-def recognize_with_ollama(processed_image, config):
+def recognize_with_ollama(processed_image, config, game):
     dbg = debug_enabled(config)
     debug_log(dbg, f"Running Ollama recognition with processed_image={processed_image}")
     ollama_cfg = config.get("ollama", {})
@@ -549,28 +260,24 @@ def recognize_with_ollama(processed_image, config):
     timeout = int(ollama_cfg.get("timeout_seconds") or 60)
     min_confidence = float(ollama_cfg.get("min_confidence") or 0.80)
     debug_ollama = parse_bool(ollama_cfg.get("debug"), default=False)
-    require_set_and_collector = parse_bool(
-        ollama_cfg.get("require_set_and_collector"),
-        default=False
-    )
     env_debug_ollama = os.environ.get("DEBUG_OLLAMA")
     if env_debug_ollama is not None:
         debug_ollama = parse_bool(env_debug_ollama, default=debug_ollama)
-    env_require_set = os.environ.get("REQUIRE_SET_AND_COLLECTOR")
-    if env_require_set is not None:
-        require_set_and_collector = parse_bool(
-            env_require_set,
-            default=require_set_and_collector
-        )
+    # REQUIRE_RECOGNITION_KEYS=a,b (or legacy REQUIRE_SET_AND_COLLECTOR=1,
+    # defaulting to config ollama.require_set_and_collector)
+    required_keys = recognition.required_keys_from_env(
+        game,
+        legacy_default=parse_bool(ollama_cfg.get("require_set_and_collector"), default=False)
+    )
+    debug_log(dbg, f"Required recognition keys: {required_keys}")
 
     # Encode image
     img_b64 = image_to_base64(processed_image)
     debug_log(dbg, f"Image encoded to base64 ({len(img_b64)} chars)")
 
-    # Prompt: strict JSON and conservative fail behavior. Editable from the
-    # Settings page (config["ollama"]["prompt"]); falls back to this default
-    # when left blank.
-    prompt = ollama_cfg.get("prompt") or DEFAULT_OLLAMA_PROMPT
+    # Prompt: strict JSON and conservative fail behavior. Per-game override
+    # from the Settings page > legacy ollama.prompt (MTG) > game.json prompt.
+    prompt = games.resolve_prompt(game, config)
 
     payload = {
         "model": model,
@@ -622,76 +329,20 @@ def recognize_with_ollama(processed_image, config):
         parsed = parse_first_json_object(response_text)
         debug_log(dbg, f"Parsed model JSON: {json.dumps(parsed)}")
 
-        confidence_raw = parsed.get("confidence", None)
-        confidence = None
-        if confidence_raw is not None:
-            try:
-                confidence = float(confidence_raw)
-            except (TypeError, ValueError):
-                confidence = None
-
-        card_name_raw = parsed.get("card_name") or parsed.get("name")
-        if isinstance(card_name_raw, str):
-            card_name = card_name_raw.strip() or "Unknown"
-        else:
-            card_name = "Unknown"
-
-        set_code = parsed.get("set_code") or "Unknown"
-        collector_number = parsed.get("collector_number") or "Unknown"
-
-        if isinstance(collector_number, str):
-            collector_number = collector_number.strip() or "Unknown"
-        else:
-            collector_number = "Unknown"
-
-        collector_number = clean_collector_number(collector_number)
-        set_code = clean_set_code(set_code)
-
-        # Normalize
-        if isinstance(set_code, str):
-            set_code = set_code.strip().upper() or "Unknown"
-        else:
-            set_code = "Unknown"
-
-        if isinstance(collector_number, str):
-            collector_number = collector_number.strip() or "Unknown"
-        else:
-            collector_number = "Unknown"
-
-        # Conservative fail policy: if confidence is present and low, reject.
-        # If confidence is omitted, allow name-only matching.
-        if confidence is not None and confidence < min_confidence:
-            debug_log(dbg, f"Rejecting result: confidence {confidence} < min_confidence {min_confidence}")
-            return "Unknown", "Unknown", "Unknown"
-        if confidence is None:
-            debug_log(dbg, "Confidence missing/unparseable; continuing with name-based matching")
-
-        if not card_name or card_name.lower() in {"unknown", "null", "none", "n/a"}:
-            debug_log(dbg, "Rejecting result: card_name missing/unknown")
-            return "Unknown", "Unknown", "Unknown"
-
-        if looks_like_type_line(card_name):
-            debug_log(dbg, f"Rejecting result: card_name looks like a type line ('{card_name}')")
-            return "Unknown", "Unknown", "Unknown"
-
-        if require_set_and_collector and (set_code == "Unknown" or collector_number == "Unknown"):
-            debug_log(
-                dbg,
-                "Rejecting result: REQUIRE_SET_AND_COLLECTOR is enabled and set/collector is Unknown"
-            )
-            return "Unknown", "Unknown", "Unknown"
+        # Normalize the game's keys + conservative accept/reject policy
+        # (low confidence, unknown name, type-line name, required keys).
+        result, reject_reason = recognition.evaluate_model_output(
+            parsed, game, min_confidence, required_keys, dbg=dbg
+        )
+        if reject_reason:
+            debug_log(dbg, f"Rejecting result: {reject_reason}")
+            return result
 
         debug_log(
             dbg,
-            (
-                "Accepted Ollama result: "
-                f"card_name='{card_name}', set_code='{set_code}', collector_number='{collector_number}', "
-                f"confidence={confidence}"
-            )
+            f"Accepted Ollama result: {json.dumps(result)}, confidence={recognition.parse_confidence(parsed)}"
         )
-        return card_name, collector_number, set_code
-        
-
+        return result
 
     except Exception as e:
         if debug_ollama:
@@ -699,30 +350,34 @@ def recognize_with_ollama(processed_image, config):
             if r is not None:
                 print("[OLLAMA DEBUG] Response body at exception:", file=sys.stderr)
                 print(r.text, file=sys.stderr)
-        # Fail gracefully; your fetch_card_info will fallback if card_name is usable
-        return "Unknown", "Unknown", "Unknown"
+        # Fail gracefully; the lookup will skip / fall back as appropriate
+        return recognition.unknown_result(game)
 
 
-def recognize_card(processed_image, config):
+def recognize_card(processed_image, config, game):
     provider = (config.get("recognition_provider") or "aws").lower().strip()
     debug_log(debug_enabled(config), f"Dispatching recognition provider: {provider}")
     if provider in ("ollama", "do_serverless"):
-        return recognize_with_ollama(processed_image, config)
-    return recognize_with_aws(processed_image, config)
+        return recognize_with_ollama(processed_image, config, game)
+    return recognize_with_aws(processed_image, config, game)
 
 
 def main():
     """
-    1. Captures and processes an image.
-    2. Crops two regions (top for name, bottom for collector number & set code) and combines them.
-    3. Runs one Rekognition call to separate OCR results.
-    4. Uses the detected values to query Scryfall.
-    5. Prints Scryfall card details as JSON.
+    1. Loads the active game (env SORTER_GAME, default "mtg").
+    2. Captures and processes an image.
+    3. Recognizes the game's keys (AWS Rekognition crops or Ollama vision model).
+    4. Looks the card up with the game's lookup (Scryfall, local JSON, ...).
+    5. Prints ONE JSON line to stdout: the card (plus "game") or an error object.
     """
+    game_id = (os.environ.get("SORTER_GAME") or games.DEFAULT_GAME_ID).strip()
     try:
         config = load_config(CONFIG_PATH)
         dbg = debug_enabled(config)
         debug_log(dbg, f"Loaded config from {CONFIG_PATH}")
+        game = load_active_game()
+        game_id = game["id"]
+        debug_log(dbg, f"Active game: {game_id} (lookup={game.get('lookup', {}).get('type')})")
         processed_image = capture_image(config)
         debug_log(dbg, f"Processed image ready: {processed_image}")
 
@@ -732,36 +387,30 @@ def main():
         debug_log(dbg, f"Copied processed image to UI path: {scanned_copy}")
 
         # Provider-aware recognition
-        card_name, collector_number, set_code = recognize_card(processed_image, config)
-        debug_log(
-            dbg,
-            (
-                "Recognition output: "
-                f"card_name='{card_name}', set_code='{set_code}', collector_number='{collector_number}'"
-            )
-        )
+        recognized = recognize_card(processed_image, config, game)
+        debug_log(dbg, f"Recognition output: {json.dumps(recognized)}")
 
     except Exception as e:
-        print(json.dumps({"error": f"Image capture/process error: {str(e)}"}))
+        print(json.dumps({"error": f"Image capture/process error: {str(e)}", "game": game_id}))
         return
 
-    card_info, scryfall_attempts = fetch_card_info(card_name, set_code, collector_number, dbg=dbg)
-    debug_log(dbg, f"Scryfall attempts: {json.dumps(scryfall_attempts)}")
+    card_info, lookup_attempts = lookup_card(game, recognized, dbg=dbg)
+    debug_log(dbg, f"Lookup attempts: {json.dumps(lookup_attempts)}")
     if card_info:
+        card_info = dict(card_info)
+        card_info["game"] = game_id
         debug_log(dbg, f"Final card match: {json.dumps(card_info)}")
         print(json.dumps(card_info))
     else:
         provider = (config.get("recognition_provider") or "aws")
-        debug_log(dbg, "No card match found after recognition + Scryfall")
+        lookup_type = game.get("lookup", {}).get("type")
+        debug_log(dbg, f"No card match found after recognition + {lookup_type} lookup")
         print(json.dumps({
-            "error": "Unable to identify card from recognition + Scryfall query",
+            "error": f"Unable to identify card from recognition + {lookup_type} lookup",
             "provider": provider,
-            "recognition": {
-                "card_name": card_name,
-                "set_code": set_code,
-                "collector_number": collector_number
-            },
-            "scryfall_responses": scryfall_attempts
+            "game": game_id,
+            "recognition": recognized,
+            "lookup_responses": lookup_attempts
         }))
 
     cleanup_images(processed_image)

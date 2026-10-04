@@ -87,8 +87,8 @@
                 <div class="label" style="text-align: left;">Recognition Response</div>
                 <pre>{{ entry.details.get("recognition_response", {}) | tojson(indent=2) }}</pre>
 
-                <div class="label" style="text-align: left;">Scryfall Responses</div>
-                <pre>{{ entry.details.get("scryfall_responses", []) | tojson(indent=2) }}</pre>
+                <div class="label" style="text-align: left;">Card Lookup Responses{% if entry.details.get("game") %} ({{ entry.details.get("game") }}){% endif %}</div>
+                <pre>{{ entry.details.get("lookup_responses", entry.details.get("scryfall_responses", [])) | tojson(indent=2) }}</pre>
 
                 {% if entry.details.get("error") %}
                 <div class="label" style="text-align: left;">Error</div>

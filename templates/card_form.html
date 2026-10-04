@@ -1,37 +1,33 @@
-<label for="name{{ i }}">Name (e.g., a or a-c):</label>
-<input type="text" id="name{{ i }}" name="name{{ i }}" value="{{ box_criteria.get(i, {}).get('name', '') }}">
-
-<label>Type:</label>
-<div class="type-tag-grid">
-{% set type_tags = box_criteria.get(i, {}).get('type_tags', []) %}
-{% for tag in ["Legendary", "Snow", "Token", "Basic", "Artifact", "Enchantment", "Creature", "Instant", "Sorcery", "Land", "Planeswalker", "Battle"] %}
-    <label class="type-tag-checkbox">
-        <input type="checkbox" id="type_{{ tag }}{{ i }}" name="type_{{ tag }}{{ i }}" {% if tag in type_tags %}checked{% endif %}>
-        {{ tag }}
+{# Bin criteria form, generated from the active game's filters (games/<id>/game.json).
+   Field names come from games.form_field_name so they always match criteria_from_form. #}
+{% set crit = box_criteria.get(i, {}) %}
+{% for flt in game.filters %}
+{% if flt.kind == 'multi' %}
+<label>{{ flt.label }}:</label>
+{% set selected = crit.get(flt.key, []) %}
+{% set has_swatches = flt.options | selectattr('swatch', 'defined') | list | length > 0 %}
+<div class="{{ 'filter-swatch-row' if has_swatches else 'type-tag-grid' }}"{% if not has_swatches %} style="grid-template-columns: repeat({{ flt.get('columns', 2) }}, 1fr);"{% endif %}>
+{% for opt in flt.options %}
+    {% set field = form_field_name(flt, i, opt.value) %}
+    <label class="type-tag-checkbox" title="{{ opt.label }}">
+        <input type="checkbox" id="{{ field }}" name="{{ field }}" {% if opt.value in selected %}checked{% endif %}>
+        {% if opt.icon %}
+        <img src="{{ opt.icon }}" alt="{{ opt.label }}" width="20" height="20">
+        {% elif opt.swatch %}
+        <span class="filter-swatch" style="background: {{ opt.swatch }};">{{ opt.value }}</span>
+        <span class="filter-swatch-label">{{ opt.label }}</span>
+        {% else %}
+        {{ opt.label }}
+        {% endif %}
     </label>
 {% endfor %}
 </div>
-
-<label>Colors:</label>
-<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px;">
-{% set color_icons = {
-    'W': 'https://svgs.scryfall.io/card-symbols/W.svg',
-    'U': 'https://svgs.scryfall.io/card-symbols/U.svg',
-    'B': 'https://svgs.scryfall.io/card-symbols/B.svg',
-    'R': 'https://svgs.scryfall.io/card-symbols/R.svg',
-    'G': 'https://svgs.scryfall.io/card-symbols/G.svg',
-    'C': 'https://svgs.scryfall.io/card-symbols/C.svg'
-} %}
-{% for color in ["W", "U", "B", "R", "G", "C"] %}
-    <label style="display: flex; align-items: center; gap: 5px;">
-        <input type="checkbox" id="{{ color }}{{ i }}" name="{{ color }}{{ i }}" {% if color in box_criteria.get(i, {}).get('colors', []) %}checked{% endif %}>
-        <img src="{{ color_icons[color] }}" alt="{{ color }}" width="20" height="20">
-    </label>
+{% else %}
+{% set field = form_field_name(flt, i) %}
+<label for="{{ field }}">{{ flt.label }}:</label>
+<input type="{{ 'number' if flt.kind == 'number' else 'text' }}" id="{{ field }}" name="{{ field }}"
+       {% if flt.maxlength %}maxlength="{{ flt.maxlength }}"{% endif %}
+       {% if flt.placeholder %}placeholder="{{ flt.placeholder }}"{% endif %}
+       value="{{ crit.get(flt.key, '') }}">
+{% endif %}
 {% endfor %}
-</div>
-
-<label for="cmc{{ i }}">Converted Mana Cost (CMC):</label>
-<input type="number" id="cmc{{ i }}" name="cmc{{ i }}" value="{{ box_criteria.get(i, {}).get('cmc', '') }}">
-
-<label for="set_symbol{{ i }}">Set Symbol (3 characters):</label>
-<input type="text" id="set_symbol{{ i }}" name="set_symbol{{ i }}" maxlength="3" value="{{ box_criteria.get(i, {}).get('set_symbol', '') }}">

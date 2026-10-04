@@ -2,6 +2,9 @@
 storage/card_info.csv
 storage/config.json
 storage/bin-info.json
+storage/bin-info-*.json
+storage/card_info-*.csv
+storage/games/
 storage/card_scanned.png
 counters/monthly_move_count.txt
 counters/move_count.txt
@@ -14,3 +17,4 @@ storage/failed_reads.jsonl
 __pycache__/
 *.py[cod]
 scripts/Test-DO-Endpoint.py
+storage/image_*.jpg

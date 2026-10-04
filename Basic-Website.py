@@ -12,20 +12,25 @@ import csv   # for writing CSV files
 import shutil  # for copying files
 import requests  # for downloading images
 import base64  # for encoding test-recognition images
+import io  # for in-memory game pack exports
 import pigpio
 import urllib.parse
 import smtplib
 from email.mime.text import MIMEText
 from werkzeug.security import generate_password_hash, check_password_hash
 from led_controller import LEDController, normalize_led_config
+import games
+import game_packs
 
 app = Flask(__name__)
 
 # Global variables
 sorting_active = False      # Whether the sorting loop is active
 sorting_thread = None       # Thread running the sorting loop
-box_criteria = {}           # Dictionary mapping box numbers (1-10) to criteria
-lock = threading.Lock()       # Protects sorting_active, box_criteria
+box_criteria = {}           # Dictionary mapping box numbers (1-10) to criteria for the active game
+game_registry = {}          # {game_id: definition} from games.load_games()
+active_game = None          # Definition of the game currently being sorted
+lock = threading.Lock()       # Protects sorting_active, box_criteria, game_registry, active_game
 stats_lock = threading.Lock() # Protects move_count, monthly_move_count, failed_read_count, card_identified_url
 
 # Global File Path
@@ -33,7 +38,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Global variables for CSV saving
 csv_enabled = False  # Whether to append card output to CSV (set via a checkbox on the main page)
-CSV_FILE = os.path.join(BASE_DIR, "storage", "card_info.csv")
 csv_lock = threading.Lock()  # Protects CSV file access
 
 # File Paths
@@ -42,8 +46,7 @@ MONTHLY_COUNTER_FILE = os.path.join(BASE_DIR, "counters", "monthly_move_count.tx
 FAILED_READS_FILE = os.path.join(BASE_DIR, "counters", "failed_reads.txt")
 CONFIG_FILE = os.path.join(BASE_DIR, "storage", "config.json")
 FEED_LOG_FILE = os.path.join(BASE_DIR, "storage", "feed_debug.log")
-BIN_INFO_FILE = os.path.join(BASE_DIR, "storage", "bin-info.json")
-BIN_INFO_DEFAULT_FILE = os.path.join(BASE_DIR, "storage", "bin-info-default.json")
+LEGACY_BIN_INFO_FILE = os.path.join(BASE_DIR, "storage", "bin-info.json")  # MTG bins before multi-game
 SCANNED_IMAGE_SRC = os.path.join(BASE_DIR, "storage", "scanned_card.png")
 SCANNED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_scanned.png")
 IDENTIFIED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "card_identified.png")
@@ -51,22 +54,10 @@ FAILED_IMAGE_DEST = os.path.join(BASE_DIR, "static", "images", "failed")
 SUCCESS_SCAN_DEST = os.path.join(BASE_DIR, "static", "images", "scans")
 COMBINED_CROP_FILE = os.path.join(BASE_DIR, "storage", "combined_crop.jpg")
 
-# Default Ollama recognition prompt; kept in sync with scripts/Read-Card.py's
-# own copy since that script runs standalone and can't import this module.
-DEFAULT_OLLAMA_PROMPT = (
-    "You are identifying a Magic: The Gathering card from an image.\n"
-    "Return ONLY valid JSON with these keys:\n"
-    "card_name (string or null), set_code (string or null), "
-    "collector_number (string or null), confidence (number 0.0 to 1.0).\n"
-    "card_name must be the printed card title, not the type line.\n"
-    "If text is unclear or confidence is low, return null values.\n"
-    "Do NOT guess.\n"
-    "Do not include any extra text.\n"
-)
-
 #Create Paths if they do not exist
 os.makedirs(FAILED_IMAGE_DEST, exist_ok=True)
 os.makedirs(SUCCESS_SCAN_DEST, exist_ok=True)
+os.makedirs(games.USER_GAMES_DIR, exist_ok=True)
 
 # Check if config.json exists; if not, copy config-default.json as config.json
 if not os.path.isfile(CONFIG_FILE):
@@ -77,14 +68,6 @@ if not os.path.isfile(CONFIG_FILE):
     else:
         print("Default configuration file config-default.json not found. Please create one.")
 
-# Check if bin-info.json exists; if not, copy bin-info-default.json as bin-info.json
-if not os.path.isfile(BIN_INFO_FILE):
-    if os.path.exists(BIN_INFO_DEFAULT_FILE):
-        shutil.copy(BIN_INFO_DEFAULT_FILE, BIN_INFO_FILE)
-        print("Default bin info file created from bin-info-default.json.")
-    else:
-        print("Default bin info file bin-info-default.json not found. Please create one.")
-        
 # Global variable for the identified card URL (from API)
 card_identified_url = ""
 card_identified_name = ""
@@ -281,156 +264,94 @@ def shutdown_led_controller():
     except Exception:
         pass
 
-TYPE_MODIFIER_TAGS = ["Legendary", "Snow", "Token", "Basic"]
-TYPE_BASE_TAGS = ["Artifact", "Enchantment", "Creature", "Instant", "Sorcery", "Land", "Planeswalker", "Battle"]
-ALL_TYPE_TAGS = TYPE_MODIFIER_TAGS + TYPE_BASE_TAGS
+def bin_info_path(game_id):
+    return os.path.join(BASE_DIR, "storage", f"bin-info-{game_id}.json")
 
-def default_box_criteria():
-    return {
-        i: {"name": "", "type_tags": [], "colors": [], "cmc": "", "set_symbol": ""}
-        for i in range(1, 11)
-    }
+def default_bins_path(game):
+    return os.path.join(game["_dir"], "default-bins.json")
 
-def normalize_criteria_value(raw_value):
-    if not isinstance(raw_value, dict):
-        raw_value = {}
-    colors_raw = raw_value.get("colors", [])
-    colors = []
-    if isinstance(colors_raw, list):
-        colors = [c for c in colors_raw if c in ["W", "U", "B", "R", "G", "C"]]
+def csv_path(game_id):
+    # MTG keeps the original file name so existing exports stay where they were.
+    if game_id == games.DEFAULT_GAME_ID:
+        return os.path.join(BASE_DIR, "storage", "card_info.csv")
+    return os.path.join(BASE_DIR, "storage", f"card_info-{game_id}.csv")
 
-    type_tags_raw = raw_value.get("type_tags")
-    if type_tags_raw is None:
-        # Legacy migration: bins saved before the type-tag checkboxes used a single
-        # combined string (e.g. "Legendary Creature") — split it into recognized tags.
-        legacy_type = str(raw_value.get("type", "")).strip()
-        type_tags_raw = legacy_type.split()
-    if not isinstance(type_tags_raw, list):
-        type_tags_raw = []
-    type_tags = [t for t in ALL_TYPE_TAGS if t in type_tags_raw]
-
-    return {
-        "name": str(raw_value.get("name", "")).strip(),
-        "type_tags": type_tags,
-        "colors": colors,
-        "cmc": str(raw_value.get("cmc", "")).strip(),
-        "set_symbol": str(raw_value.get("set_symbol", "")).strip(),
-    }
-
-def normalize_box_criteria(raw):
-    normalized = default_box_criteria()
-    if not isinstance(raw, dict):
-        return normalized
-
-    for raw_key, raw_value in raw.items():
-        try:
-            box_num = int(raw_key)
-        except (TypeError, ValueError):
-            continue
-
-        if box_num < 1 or box_num > 10 or not isinstance(raw_value, dict):
-            continue
-
-        normalized[box_num] = normalize_criteria_value(raw_value)
-
-    return normalized
-
-def read_bin_info():
+def read_default_bins(game):
     try:
-        with open(BIN_INFO_FILE, "r", encoding="utf-8") as f:
-            return normalize_box_criteria(json.load(f))
+        with open(default_bins_path(game), "r", encoding="utf-8") as f:
+            return games.normalize_box_criteria(game, json.load(f))
+    except FileNotFoundError:
+        return games.default_box_criteria(game)
+    except Exception as e:
+        print(f"Error reading default bins for {game['id']}: {e}")
+        return games.default_box_criteria(game)
+
+def read_bin_info(game):
+    path = bin_info_path(game["id"])
+    if not os.path.isfile(path):
+        # First run for this game: MTG migrates the pre-multi-game bin-info.json
+        # (copied, not moved, so rolling back to an older version still works);
+        # every other game starts from its pack's default-bins.json.
+        if game["id"] == games.DEFAULT_GAME_ID and os.path.isfile(LEGACY_BIN_INFO_FILE):
+            try:
+                with open(LEGACY_BIN_INFO_FILE, "r", encoding="utf-8") as f:
+                    criteria = games.normalize_box_criteria(game, json.load(f))
+                print("Migrated storage/bin-info.json to bin-info-mtg.json.")
+            except Exception as e:
+                print("Error reading legacy bin info file:", e)
+                criteria = read_default_bins(game)
+        else:
+            criteria = read_default_bins(game)
+        write_bin_info(game, criteria)
+        return criteria
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return games.normalize_box_criteria(game, json.load(f))
     except Exception as e:
         print("Error reading bin info file:", e)
-        return default_box_criteria()
+        return games.default_box_criteria(game)
 
-def write_bin_info(criteria):
+def write_bin_info(game, criteria):
     try:
-        normalized = normalize_box_criteria(criteria)
-        serialized = {str(i): normalized.get(i, {}) for i in range(1, 11)}
-        with open(BIN_INFO_FILE, "w", encoding="utf-8") as f:
+        normalized = games.normalize_box_criteria(game, criteria)
+        serialized = {str(i): normalized.get(i, {}) for i in range(1, games.BIN_COUNT + 1)}
+        with open(bin_info_path(game["id"]), "w", encoding="utf-8") as f:
             json.dump(serialized, f, indent=4)
         return True
     except Exception as e:
         print("Error writing bin info file:", e)
         return False
 
+def load_game_state(requested_id=None):
+    """(Re)loads the game registry and the active game's bins. Caller holds `lock`."""
+    global game_registry, active_game, box_criteria
+    game_registry = games.load_games()
+    game_id = requested_id or read_config().get("active_game") or games.DEFAULT_GAME_ID
+    active_game = games.get_game(game_id, game_registry)
+    box_criteria = read_bin_info(active_game)
+
 with lock:
-    box_criteria = read_bin_info()
+    load_game_state()
 
-def matches_criteria(card, criteria):
-    # If no criteria specified, do not consider it a match.
-    if not (criteria.get("name") or
-            criteria.get("type_tags") or
-            criteria.get("cmc") or
-            criteria.get("set_symbol") or
-            criteria.get("colors")):
-        return False
+def card_display(game, card):
+    """The name / set / number / image shown on the Live Sorting tab, using the
+    card keys named in the game's "display" block."""
+    display = game.get("display", {})
+    return {k: str(card.get(display.get(k, ""), "") or "") for k in ("name", "set", "number", "image")}
 
-    if criteria.get("name"):
-        name_crit = criteria["name"].strip()
-        card_name = card.get("name", "").strip()
-        if "-" in name_crit:
-            parts = name_crit.split("-")
-            if len(parts) == 2 and len(parts[0].strip()) == 1 and len(parts[1].strip()) == 1:
-                start_letter = parts[0].strip().upper()
-                end_letter = parts[1].strip().upper()
-                if not card_name:
-                    return False
-                first_letter = card_name[0].upper()
-                if first_letter < start_letter or first_letter > end_letter:
-                    return False
-            else:
-                if name_crit.lower() not in card_name.lower():
-                    return False
-        else:
-            if name_crit.lower() not in card_name.lower():
-                return False
-
-    if criteria.get("type_tags"):
-        card_type_line = card.get("type", "").lower()
-        for tag in criteria["type_tags"]:
-            if tag.lower() not in card_type_line:
-                return False
-
-    if criteria.get("cmc"):
-        try:
-            if float(criteria["cmc"]) != float(card.get("cmc", 0)):
-                return False
-        except ValueError:
-            return False
-
-    if criteria.get("set_symbol"):
-        if criteria["set_symbol"].lower() not in card.get("set_symbol", "").lower():
-            return False
-
-    if criteria.get("colors"):
-        crit_colors = set(criteria["colors"])
-        # Match by color identity first, then fallback to colors for older payloads.
-        card_colors = set(card.get("color_identity", card.get("colors", [])))
-        if crit_colors == {"C"}:
-            if card_colors:
-                return False
-        else:
-            if crit_colors != card_colors:
-                return False
-
-    return True
-
-def any_box_has_set_symbol():
-    with lock:
-        criteria_snapshot = list(box_criteria.values())
-    return any(str((crit or {}).get("set_symbol", "")).strip() for crit in criteria_snapshot)
-
-def append_card_to_csv(card):
-    # Use card keys as field names.
-    fieldnames = list(card.keys())
-    file_exists = os.path.isfile(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
+def append_card_to_csv(game_id, card):
+    # Use card keys as field names (one CSV per game, since each game's cards
+    # carry different keys).
+    row = {k: v for k, v in card.items() if k not in ("game", "matched_by")}
+    fieldnames = list(row.keys())
+    path = csv_path(game_id)
+    file_exists = os.path.isfile(path) and os.path.getsize(path) > 0
     with csv_lock:
-        with open(CSV_FILE, 'a', newline='') as csvfile:
+        with open(path, 'a', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             if not file_exists:
                 writer.writeheader()
-            writer.writerow(card)
+            writer.writerow(row)
 
 def update_images(card):
     """Update the scanned card image by copying the captured file.
@@ -453,8 +374,9 @@ def save_failed_read_details(timestamp, card, read_stdout="", read_stderr=""):
         "timestamp": timestamp,
         "error": card.get("error", "Unknown read error"),
         "provider": card.get("provider", ""),
+        "game": card.get("game", ""),
         "recognition_response": card.get("recognition", {}),
-        "scryfall_responses": card.get("scryfall_responses", []),
+        "lookup_responses": card.get("lookup_responses", card.get("scryfall_responses", [])),
         "raw_read_stdout": read_stdout,
         "raw_read_stderr": read_stderr
     }
@@ -465,7 +387,7 @@ def save_failed_read_details(timestamp, card, read_stdout="", read_stderr=""):
     except Exception as e:
         print(f"Failed to save failed read details: {e}")
 
-def save_successful_scan(timestamp, card):
+def save_successful_scan(timestamp, game, card):
     """Optionally save a successful scan's images + parsed data, for
     prompt-tuning reference. Gated by config["save_scans"]["enabled"]."""
     try:
@@ -477,11 +399,13 @@ def save_successful_scan(timestamp, card):
         if os.path.exists(COMBINED_CROP_FILE):
             shutil.copy(COMBINED_CROP_FILE, os.path.join(SUCCESS_SCAN_DEST, f"{timestamp}_combined_crop.jpg"))
 
+        shown = card_display(game, card)
         details = {
             "timestamp": timestamp,
-            "name": card.get("name", ""),
-            "set_symbol": card.get("set_symbol", ""),
-            "collector_number": card.get("collector_number", ""),
+            "game": game["id"],
+            "name": shown["name"],
+            "set": shown["set"],
+            "number": shown["number"],
         }
         details_path = os.path.join(SUCCESS_SCAN_DEST, f"scan_{timestamp}.json")
         with open(details_path, "w", encoding="utf-8") as f:
@@ -570,6 +494,9 @@ def sorting_loop():
         _led_state.get("color", {}).get("b", 255),
     )
     _live_config = read_config()
+    # One game per run: snapshot it so a mid-run change can't mix rule sets.
+    with lock:
+        _game = active_game
     _is_do = _live_config.get("recognition_provider") == "do_serverless"
     if _is_do:
         _bal = fetch_do_balance()
@@ -611,7 +538,12 @@ def sorting_loop():
 
             # Read the card info.
             read_env = os.environ.copy()
-            read_env["REQUIRE_SET_AND_COLLECTOR"] = "1" if any_box_has_set_symbol() else "0"
+            read_env["SORTER_GAME"] = _game["id"]
+            with lock:
+                _criteria_snapshot = list(box_criteria.values())
+            read_env["REQUIRE_RECOGNITION_KEYS"] = ",".join(
+                games.required_recognition_keys(_game, _criteria_snapshot))
+            read_env.pop("REQUIRE_SET_AND_COLLECTOR", None)
             read_stdout = ""
             read_stderr = ""
             try:
@@ -678,27 +610,27 @@ def sorting_loop():
             else:
                 if csv_enabled:
                     try:
-                        append_card_to_csv(card)
+                        append_card_to_csv(_game["id"], card)
                     except Exception as e:
                         print("Failed to append card to CSV:", e)
                 
-                # Update the global URL from the API data.
-                if "card_identified_url" in card and card["card_identified_url"]:
-                    with stats_lock:
-                        card_identified_url = card["card_identified_url"]
-                    print("Updated card URL:", card["card_identified_url"])
-
-                # Update the global identified-card name/set/collector number.
+                # Update the identified-card image/name/set/number shown on the
+                # Live Sorting tab, via the keys named in the game's "display" block.
+                shown = card_display(_game, card)
                 with stats_lock:
-                    card_identified_name = card.get("name", "")
-                    card_identified_set = card.get("set_symbol", "")
-                    card_identified_collector_number = card.get("collector_number", "")
+                    if shown["image"]:
+                        card_identified_url = shown["image"]
+                    card_identified_name = shown["name"]
+                    card_identified_set = shown["set"]
+                    card_identified_collector_number = shown["number"]
+                if shown["image"]:
+                    print("Updated card URL:", shown["image"])
 
                 # Optionally save this successful scan's images/details for prompt-tuning reference.
                 _scan_cfg = read_config().get("save_scans", {})
                 if _scan_cfg.get("enabled"):
                     _scan_ts = time.strftime("%Y%m%d-%H%M%S")
-                    save_successful_scan(_scan_ts, card)
+                    save_successful_scan(_scan_ts, _game, card)
                     enforce_scan_retention(int(_scan_cfg.get("max_saved") or 200))
 
                 # Determine the correct box.
@@ -706,7 +638,7 @@ def sorting_loop():
                 with lock:
                     for i in range(1, 11):
                         crit = box_criteria.get(i, {})
-                        match = matches_criteria(card, crit)
+                        match = games.matches_criteria(_game, card, crit)
                         print(f"Checking Box {i} with criteria {crit}: match = {match}")
                         if match:
                             selected_box = i
@@ -846,26 +778,18 @@ def index():
 
         elif "reset_bins" in request.form:
             with lock:
-                if os.path.exists(BIN_INFO_DEFAULT_FILE):
-                    try:
-                        shutil.copy(BIN_INFO_DEFAULT_FILE, BIN_INFO_FILE)
-                    except Exception as e:
-                        print(f"Failed to reset bin info from default file: {e}")
-                        box_criteria = default_box_criteria()
-                        write_bin_info(box_criteria)
-                    else:
-                        box_criteria = read_bin_info()
-                else:
-                    print("bin-info-default.json not found. Resetting to empty criteria.")
-                    box_criteria = default_box_criteria()
-                    write_bin_info(box_criteria)
-            print("Bin criteria reset to default.")
+                box_criteria = read_default_bins(active_game)
+                write_bin_info(active_game, box_criteria)
+                _reset_game = active_game["id"]
+            print(f"Bin criteria for {_reset_game} reset to default.")
 
 
         elif "clear_csv" in request.form:
-            # Clear CSV
-            if os.path.exists(CSV_FILE):
-                open(CSV_FILE, 'w').close()
+            # Clear the active game's CSV
+            with lock:
+                _csv = csv_path(active_game["id"])
+            if os.path.exists(_csv):
+                open(_csv, 'w').close()
             print("CSV file cleared.")
 
         elif "clear_monthly_count" in request.form:
@@ -910,9 +834,15 @@ def index():
     with lock:
         _sorting_active = sorting_active
         _box_criteria = box_criteria
+        _game = active_game
+        _games = list(game_registry.values())
     _live_config = read_config()
     return render_template(
         "index.html",
+        game=_game,
+        games_list=_games,
+        bin_summaries={i: games.summarize_criteria(_game, _box_criteria.get(i, {})) for i in _box_criteria},
+        form_field_name=games.form_field_name,
         moves=_moves,
         monthly_moves=_monthly,
         cards=cards,
@@ -965,25 +895,49 @@ def update_bin_criteria():
     if bin_index < 1 or bin_index > 10:
         return jsonify({"success": False, "error": "bin_index out of range"}), 400
 
-    raw_crit = {
-        "name": request.form.get(f"name{bin_index}", ""),
-        "type_tags": [t for t in ALL_TYPE_TAGS if request.form.get(f"type_{t}{bin_index}")],
-        "colors": [c for c in ["W", "U", "B", "R", "G", "C"] if request.form.get(f"{c}{bin_index}")],
-        "cmc": request.form.get(f"cmc{bin_index}", ""),
-        "set_symbol": request.form.get(f"set_symbol{bin_index}", ""),
-    }
-
     with lock:
-        box_criteria[bin_index] = normalize_criteria_value(raw_crit)
-        saved = write_bin_info(box_criteria)
+        # The page posts the game it was rendered for; refuse if the active game
+        # has changed since (another tab switched games), rather than writing one
+        # game's form fields into another game's bins.
+        if request.form.get("game_id", active_game["id"]) != active_game["id"]:
+            return jsonify({"success": False, "error": "game changed, reload the page"}), 409
+        box_criteria[bin_index] = games.criteria_from_form(active_game, request.form, bin_index)
+        saved = write_bin_info(active_game, box_criteria)
         criteria_snapshot = box_criteria[bin_index]
+        summary = games.summarize_criteria(active_game, criteria_snapshot)
 
-    return jsonify({"success": saved, "bin_index": bin_index, "criteria": criteria_snapshot})
+    return jsonify({"success": saved, "bin_index": bin_index, "criteria": criteria_snapshot, "summary": summary})
+
+@app.route("/set_game", methods=["POST"])
+def set_game():
+    """Switches the active game. Refused while sorting (one game per run)."""
+    game_id = request.form.get("game_id", "")
+    with lock:
+        if sorting_active:
+            return jsonify({"success": False, "error": "Stop sorting before switching games."}), 409
+        if game_id not in game_registry:
+            return jsonify({"success": False, "error": "Unknown game."}), 404
+        config = read_config()
+        config["active_game"] = game_id
+        if not write_config(config):
+            return jsonify({"success": False, "error": "Failed to save configuration."}), 500
+        load_game_state(game_id)
+    global card_identified_url, card_identified_name, card_identified_set, card_identified_collector_number
+    with stats_lock:
+        card_identified_url = ""
+        card_identified_name = ""
+        card_identified_set = ""
+        card_identified_collector_number = ""
+    return jsonify({"success": True, "game_id": game_id})
 
 @app.route("/download_csv", methods=["GET"])
 def download_csv():
-    if os.path.exists(CSV_FILE):
-        return send_file(CSV_FILE, as_attachment=True, download_name="card_info.csv")
+    with lock:
+        game_id = active_game["id"]
+    path = csv_path(game_id)
+    if os.path.exists(path):
+        name = "card_info.csv" if game_id == games.DEFAULT_GAME_ID else f"card_info-{game_id}.csv"
+        return send_file(path, as_attachment=True, download_name=name)
     else:
         return "CSV file not found.", 404
 
@@ -1099,10 +1053,12 @@ def api_test_recognition():
 
     with open(SCANNED_IMAGE_DEST, "rb") as f:
         img_b64 = base64.b64encode(f.read()).decode("utf-8")
+    with lock:
+        _prompt = games.resolve_prompt(active_game, config)
 
     payload = {
         "model": ollama_cfg.get("model") or "minicpm-v:latest",
-        "prompt": ollama_cfg.get("prompt") or DEFAULT_OLLAMA_PROMPT,
+        "prompt": _prompt,
         "images": [img_b64],
         "stream": False,
         "format": "json",
@@ -1145,6 +1101,22 @@ def api_clear_saved_scans():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+def render_settings(config, error=None, games_message=None):
+    with lock:
+        _game = active_game
+        _games = list(game_registry.values())
+    return render_template(
+        "settings.html",
+        config=config,
+        error=error,
+        game=_game,
+        games_list=_games,
+        pack_summaries=[game_packs.pack_summary(g) for g in _games],
+        game_prompt=games.game_settings(config, _game["id"]).get("prompt")
+            or (config.get("ollama", {}).get("prompt", "") if _game["id"] == games.DEFAULT_GAME_ID else ""),
+        games_message=games_message,
+    )
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     error = None
@@ -1176,7 +1148,12 @@ def settings():
             config["ollama"]["base_url"] = request.form.get("ollama_base_url", "").strip()
             config["ollama"]["model"] = request.form.get("ollama_model", "").strip()
             config["ollama"]["api_key"] = request.form.get("ollama_api_key", "").strip()
-            config["ollama"]["prompt"] = request.form.get("ollama_prompt", "").strip()
+            # The prompt box edits the active game's prompt override.
+            with lock:
+                _gid = active_game["id"]
+            config.setdefault("games", {}).setdefault(_gid, {})["prompt"] = request.form.get("ollama_prompt", "").strip()
+            if _gid == games.DEFAULT_GAME_ID:
+                config["ollama"].pop("prompt", None)  # migrated into games.mtg.prompt
             config["ollama"]["debug"] = True if request.form.get("ollama_debug") else False
             try:
                 config["ollama"]["timeout_seconds"] = int(request.form.get("ollama_timeout_seconds") or 60)
@@ -1189,7 +1166,7 @@ def settings():
                 config["ollama"]["seed"] = int(request.form.get("ollama_seed") or 42)
             except ValueError:
                 error = "Recognition parameters must be numbers."
-                return render_template("settings.html", config=config, error=error)
+                return render_settings(config, error)
 
             if "save_scans" not in config or not isinstance(config["save_scans"], dict):
                 config["save_scans"] = {}
@@ -1198,7 +1175,7 @@ def settings():
                 config["save_scans"]["max_saved"] = int(request.form.get("save_scans_max") or 200)
             except ValueError:
                 error = "Max Saved Scans must be a whole number."
-                return render_template("settings.html", config=config, error=error)
+                return render_settings(config, error)
 
             if "smtp" not in config:
                 config["smtp"] = {}  # Ensure smtp key exists in config
@@ -1232,35 +1209,35 @@ def settings():
                     config["feed"]["motor2_extra_feed_sec"] = float(motor2_extra)
                 except ValueError:
                     error = "Motor 2 Extra Feed Time must be a number (example: 1.2)."
-                    return render_template("settings.html", config=config, error=error)
+                    return render_settings(config, error)
             motor3_extra = request.form.get("motor3_extra_feed_sec", "").strip()
             if motor3_extra != "":
                 try:
                     config["feed"]["motor3_extra_feed_sec"] = float(motor3_extra)
                 except ValueError:
                     error = "Motor 3 Extra Feed Time must be a number (example: 0.0)."
-                    return render_template("settings.html", config=config, error=error)
+                    return render_settings(config, error)
             sensor1_block_timeout = request.form.get("sensor1_block_timeout_sec", "").strip()
             if sensor1_block_timeout != "":
                 try:
                     config["feed"]["sensor1_block_timeout_sec"] = float(sensor1_block_timeout)
                 except ValueError:
                     error = "Phase 1 (Initial Feed-In) Timeout must be a number (example: 8.0)."
-                    return render_template("settings.html", config=config, error=error)
+                    return render_settings(config, error)
             sensor1_clear_timeout = request.form.get("sensor1_clear_timeout_sec", "").strip()
             if sensor1_clear_timeout != "":
                 try:
                     config["feed"]["sensor1_clear_timeout_sec"] = float(sensor1_clear_timeout)
                 except ValueError:
                     error = "Phase 2 (Anti-Double-Feed Reverse) Timeout must be a number (example: 5.0)."
-                    return render_template("settings.html", config=config, error=error)
+                    return render_settings(config, error)
             sensor2_block_timeout = request.form.get("sensor2_block_timeout_sec", "").strip()
             if sensor2_block_timeout != "":
                 try:
                     config["feed"]["sensor2_block_timeout_sec"] = float(sensor2_block_timeout)
                 except ValueError:
                     error = "Phase 3 (Exit Routing) Timeout must be a number (example: 6.0)."
-                    return render_template("settings.html", config=config, error=error)
+                    return render_settings(config, error)
             feed_max_attempts = request.form.get("feed_max_attempts", "").strip()
             if feed_max_attempts != "":
                 try:
@@ -1270,19 +1247,84 @@ def settings():
                     config["feed"]["max_attempts"] = max_attempts_val
                 except ValueError:
                     error = "Feed Cycle Max Attempts must be a whole number of 1 or more (example: 3)."
-                    return render_template("settings.html", config=config, error=error)
+                    return render_settings(config, error)
             config["feed"]["debug_logging"] = True if request.form.get("feed_debug_logging") else False
             if write_config(config):
                 return redirect(url_for("index"))
             else:
                 error = "Failed to save configuration."
-                return render_template("settings.html", config=config, error=error)
+                return render_settings(config, error)
         elif "cancel" in request.form:
             return redirect(url_for("index"))
     else:
         config = read_config()
-        return render_template("settings.html", config=config, error=error)
+        return render_settings(config, error)
     
+# ---------------------------------------------------------------------------
+# Game packs (Settings -> Games): upload / export / delete
+# ---------------------------------------------------------------------------
+GAME_PACK_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+@app.route("/games/upload", methods=["POST"])
+def games_upload():
+    upload = request.files.get("pack")
+    if not upload or not upload.filename:
+        return render_settings(read_config(), games_message="Choose a .zip game pack to upload.")
+    if request.content_length and request.content_length > GAME_PACK_MAX_UPLOAD_BYTES + 1024 * 1024:
+        return render_settings(read_config(), games_message="Game pack is larger than 50 MB.")
+    replace = bool(request.form.get("replace"))
+    # Decide the message while holding `lock`, but render after releasing it:
+    # render_settings takes `lock` itself and it is not re-entrant.
+    with lock:
+        if sorting_active:
+            message = "Stop sorting before installing a game pack."
+        else:
+            try:
+                game_id = game_packs.install_pack(upload.stream, game_registry, replace=replace)
+            except game_packs.PackError as e:
+                message = f"Upload rejected: {e}"
+            else:
+                load_game_state(active_game["id"])
+                message = f"Installed game pack: {game_registry.get(game_id, {}).get('name', game_id)}."
+    return render_settings(read_config(), games_message=message)
+
+@app.route("/games/<game_id>/export", methods=["GET"])
+def games_export(game_id):
+    with lock:
+        game = game_registry.get(game_id)
+    if not game:
+        return "Unknown game.", 404
+    data = game_packs.export_pack(game)
+    return send_file(io.BytesIO(data), mimetype="application/zip", as_attachment=True,
+                     download_name=f"{game_id}-game-pack.zip")
+
+@app.route("/games/<game_id>/delete", methods=["POST"])
+def games_delete(game_id):
+    deleted = False
+    with lock:  # render_settings re-takes `lock`, so only decide the message here
+        if sorting_active:
+            message = "Stop sorting before deleting a game pack."
+        elif active_game["id"] == game_id:
+            message = "Switch to another game before deleting this one."
+        else:
+            try:
+                game_packs.delete_pack(game_id, game_registry)
+            except game_packs.PackError as e:
+                message = f"Delete failed: {e}"
+            else:
+                load_game_state(active_game["id"])
+                deleted = True
+                message = f"Deleted game pack: {game_id}."
+    config = read_config()
+    if deleted:
+        # Remove the deleted game's saved bins and settings; its sorted-card CSV
+        # is user data and is kept.
+        if os.path.isfile(bin_info_path(game_id)):
+            os.remove(bin_info_path(game_id))
+        if isinstance(config.get("games"), dict) and config["games"].pop(game_id, None) is not None:
+            write_config(config)
+    return render_settings(config, games_message=message)
+
 @app.route("/update_program", methods=["POST"])
 def update_program():
     with lock:

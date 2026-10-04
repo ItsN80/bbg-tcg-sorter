@@ -75,8 +75,50 @@
         .pill.game-pill-add:hover {
             background: transparent;
             border: 1.5px dashed #b7c0c8;
-            color: #9aa5ae;
-            cursor: not-allowed;
+            color: #6b7680;
+            cursor: pointer;
+        }
+        /* Games panel (pack upload / export / delete) lives outside the main
+           settings form, since forms can't nest. */
+        .games-panel {
+            max-width: 1000px;
+            margin: 20px auto 0;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .games-panel form {
+            max-width: none;
+            margin: 0;
+            padding: 0;
+            box-shadow: none;
+            background: none;
+            border-radius: 0;
+        }
+        .games-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+        }
+        .games-table th, .games-table td {
+            text-align: left;
+            padding: 6px 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .games-table td.actions {
+            white-space: nowrap;
+            text-align: right;
+        }
+        .games-table td.actions form {
+            display: inline;
+        }
+        .games-message {
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: #eef6fc;
+            margin-bottom: 12px;
         }
         @media (max-width: 600px) {
             body {
@@ -204,8 +246,10 @@
     <div class="page-header">
         <div class="top-bar">
             <div class="switcher-group">
-                <button type="button" class="pill game-pill active">Magic: The Gathering</button>
-                <button type="button" class="pill game-pill-add" disabled title="Coming soon">+ Add game</button>
+                {% for g in games_list %}
+                <button type="button" class="pill game-pill {{ 'active' if g.id == game.id else '' }}" data-game-id="{{ g.id }}">{{ g.name }}</button>
+                {% endfor %}
+                <a href="#games" class="pill game-pill-add" title="Upload a game pack">+ Add game</a>
             </div>
             <div class="switcher-group">
                 <a href="{{ url_for('index') }}" class="pill">Live Sorting</a>
@@ -267,9 +311,10 @@
                         server-side prompt for consistency/security, and ignore these.
                     </p>
 
-                    <label for="ollama_prompt">Recognition Prompt:</label>
+                    <label for="ollama_prompt">Recognition Prompt ({{ game.name }}):</label>
                     <textarea id="ollama_prompt" name="ollama_prompt" rows="6" style="width:100%; padding:8px; margin-top:5px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; font-family: monospace; font-size: 0.85rem;"
-                        placeholder="Leave blank to use the built-in default prompt.">{{ config.get('ollama', {}).get('prompt', '') }}</textarea>
+                        placeholder="Leave blank to use the game's built-in prompt:&#10;&#10;{{ game.recognition.prompt }}">{{ game_prompt }}</textarea>
+                    <p style="font-size: 0.8rem; color: #666; margin: 4px 0 0;">Each game has its own prompt; switch games with the pills above to edit another.</p>
 
                     <div class="inline-row" style="margin-top: 10px;">
                         <div>
@@ -489,7 +534,64 @@
         <input type="hidden" id="system_action" name="system_action" value="">
     </form>
 
+    <div class="games-panel" id="games">
+        <h2 style="margin-top: 0;">Games</h2>
+        {% if games_message %}<div class="games-message">{{ games_message }}</div>{% endif %}
+        <table class="games-table">
+            <thead><tr><th>Game</th><th>Card lookup</th><th>Filters</th><th>Source</th><th></th></tr></thead>
+            <tbody>
+            {% for p in pack_summaries %}
+                <tr>
+                    <td>{{ p.name }}{% if p.id == game.id %} <strong>(active)</strong>{% endif %}</td>
+                    <td>{{ p.lookup_type }}</td>
+                    <td>{{ p.filter_count }}</td>
+                    <td>{{ 'Built-in' if p.builtin else 'Uploaded' }}</td>
+                    <td class="actions">
+                        <a href="{{ url_for('games_export', game_id=p.id) }}"><button type="button">Export</button></a>
+                        {% if not p.builtin %}
+                        <form method="POST" action="{{ url_for('games_delete', game_id=p.id) }}"
+                              onsubmit="return confirm('Delete the {{ p.name }} game pack and its bin setup?');">
+                            <button type="submit" style="background-color: #c0392b;">Delete</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
+        <h3>Add a game</h3>
+        <p style="font-size: 0.85rem; color: #666;">
+            Upload a game pack (.zip) containing a <code>game.json</code> definition and, for offline lookups, its card
+            list. Packs contain only data, never code. The easiest start is to export an existing game and edit it;
+            see <code>docs/game-packs.md</code> for the format.
+        </p>
+        <form method="POST" action="{{ url_for('games_upload') }}" enctype="multipart/form-data">
+            <input type="file" name="pack" accept=".zip" required>
+            <label style="display: inline-flex; align-items: center; gap: 6px; margin-left: 12px;">
+                <input type="checkbox" name="replace"> Replace an uploaded game with the same id
+            </label>
+            <div style="margin-top: 10px;"><button type="submit">Upload Game Pack</button></div>
+        </form>
+    </div>
+
     <script>
+        // Game pills — switch the active game (server refuses while sorting), then reload.
+        document.querySelectorAll(".game-pill[data-game-id]").forEach(function (pill) {
+            pill.addEventListener("click", function () {
+                if (pill.classList.contains("active")) return;
+                const data = new FormData();
+                data.append("game_id", pill.getAttribute("data-game-id"));
+                fetch("/set_game", { method: "POST", body: data })
+                    .then(response => response.json())
+                    .then(function (result) {
+                        if (!result.success) throw new Error(result.error || "switch failed");
+                        window.location.reload();
+                    })
+                    .catch(function (err) { alert(err.message); });
+            });
+        });
+
         function runScript(scriptName, args) {
             let url = `/run_script?script=${encodeURIComponent(scriptName)}`;
             if (args) url += `&args=${encodeURIComponent(args)}`;

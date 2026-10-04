@@ -76,8 +76,12 @@
         .pill.game-pill-add {
             background: transparent;
             border: 1.5px dashed #b7c0c8;
-            color: #9aa5ae;
+            color: #6b7680;
+            cursor: pointer;
+        }
+        .pill.game-pill:disabled {
             cursor: not-allowed;
+            opacity: 0.55;
         }
         .pill.tab-pill.active {
             background: var(--ink);
@@ -410,6 +414,26 @@
             font-size: 0.85rem;
             font-weight: 400;
         }
+        /* Swatch options (e.g. Flesh and Blood pitch) */
+        .filter-swatch-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 10px;
+        }
+        .filter-swatch {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            color: #2c2c2c;
+        }
+        .filter-swatch-label {
+            color: var(--muted);
+        }
 
         @media (max-width: 900px) {
             #panel-live.active {
@@ -446,8 +470,11 @@
     <div class="app-shell">
         <div class="top-bar">
             <div class="switcher-group" id="gameSwitcher">
-                <button type="button" class="pill game-pill active" id="gamePillMtg">Magic: The Gathering</button>
-                <button type="button" class="pill game-pill-add" id="gamePillAdd" disabled title="Coming soon">+ Add game</button>
+                {% for g in games_list %}
+                <button type="button" class="pill game-pill {{ 'active' if g.id == game.id else '' }}" data-game-id="{{ g.id }}"
+                    {% if sorting_active and g.id != game.id %}disabled title="Stop sorting before switching games"{% endif %}>{{ g.name }}</button>
+                {% endfor %}
+                <a href="{{ url_for('settings') }}#games" class="pill game-pill-add" id="gamePillAdd" title="Upload a game pack">+ Add game</a>
             </div>
             <div class="switcher-group" id="tabSwitcher">
                 <button type="button" class="pill tab-pill active" data-tab="live">Live Sorting</button>
@@ -529,7 +556,7 @@
                 <div class="live-col">
                     <div class="card image-box">
                         <h3 class="card-label">Card Identified</h3>
-                        <img id="cardIdentified" src="{{ card_identified_url if card_identified_url else 'https://cards.scryfall.io/large/front/f/a/fae9abc7-ecd3-4042-a5b0-5f2b24491fa6.jpg?1562258009' }}" alt="Identified Card Image">
+                        <img id="cardIdentified" src="{{ card_identified_url if card_identified_url else (game.placeholder_image or url_for('static', filename='favicon.ico')) }}" alt="Identified Card Image">
                         <dl class="info-table">
                             <dt>Name</dt>
                             <dd id="identifiedCardName">{{ card_identified_name if card_identified_name else '--' }}</dd>
@@ -551,16 +578,9 @@
                 <div class="bin-editor">
                     <div class="bin-list" id="binList">
                         {% for i in range(1, 11) %}
-                        {% set crit = box_criteria.get(i, {}) %}
-                        {% set summary_parts = [] %}
-                        {% if crit.get('name') %}{% set _ = summary_parts.append(crit.get('name')) %}{% endif %}
-                        {% if crit.get('type_tags') %}{% set _ = summary_parts.append(crit.get('type_tags')|join(' ')) %}{% endif %}
-                        {% if crit.get('cmc') %}{% set _ = summary_parts.append('CMC ' ~ crit.get('cmc')) %}{% endif %}
-                        {% if crit.get('set_symbol') %}{% set _ = summary_parts.append(crit.get('set_symbol')|upper) %}{% endif %}
-                        {% if crit.get('colors') %}{% set _ = summary_parts.append(crit.get('colors')|join('')) %}{% endif %}
                         <button type="button" class="bin-list-item {{ 'active' if i == 1 else '' }}" data-bin="{{ i }}">
                             <span class="bin-list-title">Card Bin {{ i }}</span>
-                            <span class="bin-list-summary">{{ summary_parts|join(' · ') if summary_parts else 'No criteria set' }}</span>
+                            <span class="bin-list-summary">{{ bin_summaries.get(i) or 'No criteria set' }}</span>
                         </button>
                         {% endfor %}
                     </div>
@@ -641,9 +661,23 @@
             });
         });
 
-        // Game switcher — MTG is the only functional pill for now; "+ Add game" is an inert placeholder.
-        document.getElementById("gamePillAdd").addEventListener("click", function (e) {
-            e.preventDefault();
+        // Game switcher — one game per run; the server refuses while sorting.
+        // "+ Add game" is a plain link to Settings -> Games (pack upload).
+        document.querySelectorAll("#gameSwitcher .game-pill[data-game-id]").forEach(function (pill) {
+            pill.addEventListener("click", function () {
+                if (pill.classList.contains("active")) return;
+                flushAllBinSaves();
+                const data = new FormData();
+                data.append("game_id", pill.getAttribute("data-game-id"));
+                fetch("/set_game", { method: "POST", body: data })
+                    .then(response => response.json())
+                    .then(function (result) {
+                        if (!result.success) throw new Error(result.error || "switch failed");
+                        const tab = document.querySelector('#tabSwitcher .pill.active[data-tab]');
+                        window.location.href = "/" + (tab && tab.getAttribute("data-tab") === "bins" ? "?tab=bins" : "");
+                    })
+                    .catch(function (err) { alert(err.message); });
+            });
         });
 
         // Deep link support (e.g. the "Bin Setup" pill on the Settings page links
@@ -677,16 +711,11 @@
             binSaveStatus.classList.toggle("error", !!isError);
         }
 
-        function updateBinSummary(binIndex, crit) {
+        // The server builds the summary from the game's filter definitions.
+        function updateBinSummary(binIndex, summary) {
             const summaryEl = document.querySelector('.bin-list-item[data-bin="' + binIndex + '"] .bin-list-summary');
-            if (!summaryEl || !crit) return;
-            const parts = [];
-            if (crit.name) parts.push(crit.name);
-            if (crit.type_tags && crit.type_tags.length) parts.push(crit.type_tags.join(" "));
-            if (crit.cmc) parts.push("CMC " + crit.cmc);
-            if (crit.set_symbol) parts.push(crit.set_symbol.toUpperCase());
-            if (crit.colors && crit.colors.length) parts.push(crit.colors.join(""));
-            summaryEl.textContent = parts.length ? parts.join(" · ") : "No criteria set";
+            if (!summaryEl) return;
+            summaryEl.textContent = summary || "No criteria set";
         }
 
         function saveBin(binIndex) {
@@ -694,6 +723,7 @@
             if (!container) return;
             const data = new FormData();
             data.append("bin_index", binIndex);
+            data.append("game_id", {{ game.id | tojson }});
             container.querySelectorAll("input, select").forEach(function (el) {
                 if (el.type === "checkbox") {
                     if (el.checked) data.append(el.name, el.value || "1");
@@ -703,13 +733,22 @@
             });
             setSaveStatus("Saving…");
             fetch("/update_bin_criteria", { method: "POST", body: data })
-                .then(response => response.json())
+                .then(function (response) {
+                    if (response.status === 409) {
+                        // Active game changed in another tab; this page's fields are stale.
+                        setSaveStatus("Game changed elsewhere — reloading", true);
+                        setTimeout(function () { window.location.reload(); }, 1500);
+                        throw null;
+                    }
+                    return response.json();
+                })
                 .then(function (result) {
                     if (!result.success) throw new Error("save failed");
                     setSaveStatus("All changes saved");
-                    updateBinSummary(binIndex, result.criteria);
+                    updateBinSummary(binIndex, result.summary);
                 })
-                .catch(function () {
+                .catch(function (err) {
+                    if (err === null) return;
                     setSaveStatus("Failed to save — retrying", true);
                     setTimeout(function () { saveBin(binIndex); }, 2000);
                 });

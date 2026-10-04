@@ -1,0 +1,294 @@
+{
+    "schema_version": 1,
+    "id": "fab",
+    "name": "Flesh and Blood",
+    "recognition": {
+        "prompt": "You are identifying a Flesh and Blood (FaB) trading card from an image.\nReturn ONLY valid JSON with these keys:\ncard_name (string or null), card_id (string or null), pitch (1, 2, 3 or null), confidence (number 0.0 to 1.0).\ncard_name must be the card title printed in the banner at the top of the card, not the type line (e.g. \"Ninja Action - Attack\" or \"Generic Equipment - Head\") printed in the bar near the bottom of the card.\ncard_id is the printed card id in the small footer text along the bottom edge of the card, just below the type line: a 3-character set code (usually 3 letters such as WTR, MON, ROS, HNT; a few start with a digit such as 1HP) followed by 3 digits, e.g. \"ROS001\". On newer cards it comes after the rarity symbol and the language code, e.g. \"EN | ROS001\"; on older cards it is followed by a dash and a rarity letter, e.g. \"WTR115-T\". Return only those 6 characters (\"WTR115\"), without the dash, rarity letter, language code, artist name or copyright. The digits use zero, not the letter O.\npitch is the card's pitch value, shown by the colored strip along the top edge of the card frame (and the matching circles in the top-left corner): red = 1, yellow = 2, blue = 3. Use null if the card has no colored strip (heroes, equipment, weapons and most tokens).\nIf text is unclear or confidence is low, return null values.\nDo NOT guess.\nDo not include any extra text.\n",
+        "keys": [
+            "card_name",
+            "card_id",
+            "pitch"
+        ],
+        "normalize": {
+            "card_id": "upper_alnum",
+            "pitch": "int"
+        },
+        "reject_name_words": [
+            "action",
+            "attack",
+            "attack action",
+            "attack reaction",
+            "defense reaction",
+            "instant",
+            "equipment",
+            "weapon",
+            "hero",
+            "demi-hero",
+            "ally",
+            "resource",
+            "token",
+            "item",
+            "aura",
+            "block",
+            "mentor",
+            "macro",
+            "generic"
+        ],
+        "require_when_filtered": {
+            "filters": [
+                "set",
+                "rarity"
+            ],
+            "keys": [
+                "card_id"
+            ]
+        },
+        "aws": {
+            "patterns": {
+                "card_id": "\\b([0-9A-Za-z][A-Za-z]{2}\\d{3})\\b",
+                "pitch": "(?!)"
+            }
+        }
+    },
+    "lookup": {
+        "type": "local_json",
+        "file": "cards.json",
+        "id_field": "id",
+        "name_field": "name",
+        "id_key": "card_id",
+        "name_key": "card_name",
+        "match_keys": {
+            "pitch": "pitch"
+        },
+        "fuzzy_cutoff": 0.85,
+        "id_pattern": "([A-Z0-9]{3}\\d{3})"
+    },
+    "display": {
+        "name": "name",
+        "set": "set",
+        "number": "id",
+        "image": "image_url"
+    },
+    "placeholder_image": "https://legendstory-production-s3-public.s3.amazonaws.com/media/cards/large/WTR001.webp",
+    "filters": [
+        {
+            "key": "name",
+            "label": "Name (e.g., a or a-c)",
+            "kind": "name_range",
+            "field": "name"
+        },
+        {
+            "key": "types",
+            "label": "Type",
+            "kind": "multi",
+            "field": "types",
+            "match": "any_of",
+            "columns": 2,
+            "options": [
+                {
+                    "value": "Attack action",
+                    "requires": [
+                        "Action",
+                        "Attack"
+                    ]
+                },
+                {
+                    "value": "Equipment"
+                },
+                {
+                    "value": "Action",
+                    "requires": [
+                        "Action"
+                    ],
+                    "excludes": [
+                        "Attack",
+                        "Equipment"
+                    ]
+                },
+                {
+                    "value": "Weapon"
+                },
+                {
+                    "value": "Attack reaction",
+                    "requires": [
+                        "Attack Reaction"
+                    ]
+                },
+                {
+                    "value": "Hero"
+                },
+                {
+                    "value": "Defense reaction",
+                    "requires": [
+                        "Defense Reaction"
+                    ]
+                },
+                {
+                    "value": "Ally"
+                },
+                {
+                    "value": "Instant",
+                    "requires": [
+                        "Instant"
+                    ],
+                    "excludes": [
+                        "Equipment"
+                    ]
+                },
+                {
+                    "value": "Resource"
+                },
+                {
+                    "value": "Item"
+                },
+                {
+                    "value": "Token"
+                },
+                {
+                    "value": "Demi-Hero",
+                    "label": "Demi-hero"
+                },
+                {
+                    "value": "Block"
+                },
+                {
+                    "value": "Mentor"
+                },
+                {
+                    "value": "Aura"
+                },
+                {
+                    "value": "Event"
+                },
+                {
+                    "value": "Macro"
+                }
+            ]
+        },
+        {
+            "key": "classes",
+            "label": "Class",
+            "kind": "multi",
+            "field": "classes",
+            "match": "any_of",
+            "columns": 3,
+            "options": [
+                "Generic",
+                "Ninja",
+                "Assassin",
+                "Brute",
+                "Ranger",
+                "Bard",
+                "Guardian",
+                "Runeblade",
+                "Merchant",
+                "Illusionist",
+                "Warrior",
+                "Necromancer",
+                "Mechanologist",
+                "Wizard",
+                "Pirate",
+                "Adjudicator",
+                "Shapeshifter",
+                "Thief"
+            ]
+        },
+        {
+            "key": "talents",
+            "label": "Talent",
+            "kind": "multi",
+            "field": "talents",
+            "match": "any_of",
+            "columns": 3,
+            "options": [
+                "Draconic",
+                "Elemental",
+                "Mystic",
+                "Light",
+                "Ice",
+                "Earth",
+                "Shadow",
+                "Lightning",
+                "Royal",
+                "Chaos",
+                "Revered",
+                "Reviled"
+            ]
+        },
+        {
+            "key": "pitch",
+            "label": "Pitch",
+            "kind": "multi",
+            "field": "pitch",
+            "match": "any_of",
+            "columns": 3,
+            "options": [
+                {
+                    "value": "1",
+                    "label": "Red",
+                    "swatch": "#F09595"
+                },
+                {
+                    "value": "2",
+                    "label": "Yellow",
+                    "swatch": "#FAC775"
+                },
+                {
+                    "value": "3",
+                    "label": "Blue",
+                    "swatch": "#85B7EB"
+                }
+            ]
+        },
+        {
+            "key": "cost",
+            "label": "Resource cost",
+            "kind": "number",
+            "field": "cost",
+            "summary_prefix": "Cost ",
+            "empty_is_zero": false
+        },
+        {
+            "key": "set",
+            "label": "Set code (3 characters)",
+            "kind": "text",
+            "field": "set",
+            "match": "equals_ci",
+            "maxlength": 3,
+            "summary_upper": true
+        },
+        {
+            "key": "rarity",
+            "label": "Rarity",
+            "kind": "multi",
+            "field": "rarity",
+            "match": "any_of",
+            "columns": 3,
+            "options": [
+                "Common",
+                "Rare",
+                {
+                    "value": "Super Rare",
+                    "label": "Super rare"
+                },
+                "Majestic",
+                "Legendary",
+                "Fabled",
+                "Marvel",
+                "Promo",
+                "Token",
+                "Basic"
+            ]
+        }
+    ],
+    "summary": [
+        "name",
+        "types",
+        "classes",
+        "talents",
+        "pitch",
+        "cost",
+        "set",
+        "rarity"
+    ]
+}

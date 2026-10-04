@@ -119,8 +119,8 @@ system Python as externally managed. This only affects this one `pip install` co
 python3 Basic-Website.py
 ```
 
-On first run this creates `storage/config.json` and `storage/bin-info.json` from their
-`-default.json` templates. Stop it with `Ctrl+C` once you see it serving — you'll run it
+On first run this creates `storage/config.json` from `config-default.json`, and a
+`storage/bin-info-<game>.json` bin setup for each game from `games/<game>/default-bins.json`. Stop it with `Ctrl+C` once you see it serving — you'll run it
 as a service from here on.
 
 ### 6. Install it as a systemd service
@@ -201,8 +201,8 @@ Then go to **Settings** and configure:
 - **Updating via the UI requires a clean git checkout.** The Settings page's
   "Update Program" button runs `git pull` and restarts the service automatically. If
   you've hand-edited tracked files on the Pi, the pull can fail — commit or discard
-  those changes first. `storage/config.json` and `storage/bin-info.json` are
-  gitignored and untouched by updates.
+  those changes first. `storage/config.json`, the `storage/bin-info-*.json` bin setups and uploaded
+  game packs in `storage/games/` are gitignored and untouched by updates.
 - **License is AGPLv3.** If you modify and distribute this (including running a
   modified version as a network service others use), the license requires making your
   source available. See [LICENSE](LICENSE).

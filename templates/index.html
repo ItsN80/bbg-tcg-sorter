@@ -414,6 +414,14 @@
             font-size: 0.85rem;
             font-weight: 400;
         }
+        .notice-banner {
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: #fdecea;
+            color: #8a1f11;
+            border: 1px solid #f5c2bc;
+            font-size: 0.9rem;
+        }
         /* Swatch options (e.g. Flesh and Blood pitch) */
         .filter-swatch-row {
             display: flex;
@@ -482,6 +490,9 @@
                 <a href="{{ url_for('settings') }}" class="pill tab-pill">Settings</a>
             </div>
         </div>
+        {% if error or provider_warning %}
+        <div class="notice-banner" role="alert">{{ error or provider_warning }}</div>
+        {% endif %}
 
         <form method="POST" class="panels">
             <div class="panel active" id="panel-live">

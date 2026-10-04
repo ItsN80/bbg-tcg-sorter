@@ -233,3 +233,83 @@ def test_sorting_loop_routes_with_active_game(web):
     assert module.card_identified_url == "http://img/bolt.jpg"
     header = (root / "storage" / "card_info.csv").read_text().splitlines()[0]
     assert "game" not in header.split(",") and "name" in header
+
+
+# --- hosted DO Serverless: per-game prompts on the server ---
+def _install_custom_pack(module, client):
+    src = zipfile.ZipFile(io.BytesIO(client.get("/games/mtg/export").data))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        for name in src.namelist():
+            data = src.read(name)
+            if name.endswith("game.json"):
+                d = json.loads(data)
+                d["id"], d["name"] = "custom", "Custom Game"
+                data = json.dumps(d).encode()
+            z.writestr(name, data)
+    out.seek(0)
+    client.post("/games/upload", data={"pack": (out, "c.zip")}, content_type="multipart/form-data")
+    assert "custom" in module.game_registry
+
+
+def _set_provider(root, provider):
+    cfg = json.loads((root / "storage" / "config.json").read_text())
+    cfg["recognition_provider"] = provider
+    cfg.setdefault("ollama", {})["base_url"] = "https://do.example"
+    (root / "storage" / "config.json").write_text(json.dumps(cfg))
+
+
+def test_do_serverless_refuses_custom_pack(web):
+    module, client, root = web
+    _install_custom_pack(module, client)
+    _set_provider(root, "do_serverless")
+    client.post("/set_game", data={"game_id": "custom"})
+    html = client.get("/").get_data(as_text=True)
+    assert "doesn&#39;t support Custom Game yet" in html or "doesn't support Custom Game yet" in html
+    with mock.patch.object(module.threading, "Thread") as thread:
+        client.post("/", data={"start_sorting": "1"})
+    assert not thread.called and not module.sorting_active
+    r = client.post("/api/test_recognition")
+    assert r.status_code == 400 and "Custom Game" in r.get_json()["error"]
+    # Built-in hosted games are fine; a custom pack with direct Ollama is fine.
+    client.post("/set_game", data={"game_id": "fab"})
+    assert 'class="notice-banner"' not in client.get("/").get_data(as_text=True)
+    _set_provider(root, "ollama")
+    client.post("/set_game", data={"game_id": "custom"})
+    assert 'class="notice-banner"' not in client.get("/").get_data(as_text=True)
+
+
+def test_test_recognition_sends_game_to_do(web):
+    module, client, root = web
+    _set_provider(root, "do_serverless")
+    client.post("/set_game", data={"game_id": "fab"})
+    (root / "static" / "images" / "card_scanned.png").write_bytes(b"img")
+    sent = {}
+
+    def fake_post(url, json=None, **kw):
+        sent.update(json)
+        return mock.MagicMock(status_code=200, json=lambda: {"response": "{}"})
+
+    with mock.patch.object(module.requests, "post", side_effect=fake_post):
+        assert client.post("/api/test_recognition").get_json()["success"]
+    assert sent["game"] == "fab"
+
+
+def test_sorting_stops_when_server_rejects_game(web):
+    module, client, root = web
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[1].endswith("Read-Card.py"):
+            out = {"error": "not supported", "unsupported_game": True, "game": "mtg"}
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(out), stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    module.sorting_active = True
+    with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+         mock.patch.object(module.time, "sleep"):
+        module.sorting_loop()  # must return on its own, after one card
+    assert not module.sorting_active
+    assert sum(1 for c in calls if c[1].endswith("Read-Card.py")) == 1
+    assert module.bin_counts[10] == 1

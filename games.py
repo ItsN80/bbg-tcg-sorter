@@ -341,6 +341,25 @@ def required_recognition_keys(game, criteria_by_box):
     return []
 
 
+# Games the hosted DO Serverless recognition service has a server-side prompt for.
+# Mirrors the server's allowlist: it answers 400 "unsupported game" for anything
+# else and never accepts client prompts, so uploaded packs need direct Ollama/AWS.
+DO_SERVERLESS_GAMES = {"mtg", "fab"}
+
+
+def do_serverless_supports(game):
+    return bool(game.get("_builtin")) and game["id"] in DO_SERVERLESS_GAMES
+
+
+def unsupported_provider_message(game, config):
+    """Why the active game can't be recognized with the configured provider, or None."""
+    provider = ((config or {}).get("recognition_provider") or "aws").lower().strip()
+    if provider == "do_serverless" and not do_serverless_supports(game):
+        return (f"The hosted DO Serverless service doesn't support {game['name']} yet. "
+                f"Switch Recognition Provider to Ollama (direct) or Amazon Rekognition in Settings.")
+    return None
+
+
 def public_game(game):
     """The definition without private keys, safe to hand to templates / JSON."""
     return {k: v for k, v in game.items() if not k.startswith("_")}

@@ -77,6 +77,12 @@ def debug_log(enabled, message):
     if enabled:
         print(f"[READ-CARD DEBUG] {message}", file=sys.stderr)
 
+class UnsupportedGameError(RuntimeError):
+    """The recognition provider can't handle this game (e.g. a custom pack sent
+    to the hosted DO Serverless service). Retrying won't help, so the sorting
+    loop stops instead of failing every card into bin 10."""
+
+
 def load_active_game():
     """
     Active game from env SORTER_GAME (default "mtg"), via the games registry.
@@ -271,6 +277,13 @@ def recognize_with_ollama(processed_image, config, game):
     )
     debug_log(dbg, f"Required recognition keys: {required_keys}")
 
+    # The hosted DO service only knows the games it has server-side prompts for;
+    # don't upload images (or spend credits) for anything else.
+    is_do = (config.get("recognition_provider") or "").lower().strip() == "do_serverless"
+    unsupported = games.unsupported_provider_message(game, config)
+    if unsupported:
+        raise UnsupportedGameError(unsupported)
+
     # Encode image
     img_b64 = image_to_base64(processed_image)
     debug_log(dbg, f"Image encoded to base64 ({len(img_b64)} chars)")
@@ -294,6 +307,9 @@ def recognize_with_ollama(processed_image, config, game):
             "seed": int(ollama_cfg.get("seed", 42))
         }
     }
+    if is_do:
+        # DO picks its own server-side prompt per game (the prompt above is ignored).
+        payload["game"] = game["id"]
 
     if debug_ollama:
         payload_debug = dict(payload)
@@ -317,6 +333,11 @@ def recognize_with_ollama(processed_image, config, game):
             print("[OLLAMA DEBUG] HTTP status:", r.status_code, file=sys.stderr)
             print("[OLLAMA DEBUG] Raw response body:", file=sys.stderr)
             print(r.text, file=sys.stderr)
+        if is_do and r.status_code == 400 and "unsupported game" in r.text:
+            raise UnsupportedGameError(
+                f"The hosted DO Serverless service doesn't support {game['name']} yet "
+                f"(server said: {r.text[:200]}). Use Ollama (direct) or Amazon Rekognition."
+            )
         r.raise_for_status()
         data = r.json()
         debug_log(dbg, "Received JSON response from Ollama API")
@@ -344,6 +365,8 @@ def recognize_with_ollama(processed_image, config, game):
         )
         return result
 
+    except UnsupportedGameError:
+        raise
     except Exception as e:
         if debug_ollama:
             print(f"[OLLAMA DEBUG] Exception: {str(e)}", file=sys.stderr)
@@ -378,6 +401,7 @@ def main():
         game = load_active_game()
         game_id = game["id"]
         debug_log(dbg, f"Active game: {game_id} (lookup={game.get('lookup', {}).get('type')})")
+        processed_image = None
         processed_image = capture_image(config)
         debug_log(dbg, f"Processed image ready: {processed_image}")
 
@@ -390,6 +414,12 @@ def main():
         recognized = recognize_card(processed_image, config, game)
         debug_log(dbg, f"Recognition output: {json.dumps(recognized)}")
 
+    except UnsupportedGameError as e:
+        print(json.dumps({"error": str(e), "unsupported_game": True, "game": game_id,
+                          "provider": config.get("recognition_provider")}))
+        if processed_image:
+            cleanup_images(processed_image)
+        return
     except Exception as e:
         print(json.dumps({"error": f"Image capture/process error: {str(e)}", "game": game_id}))
         return

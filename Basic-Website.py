@@ -578,6 +578,11 @@ def sorting_loop():
                 card = {"error": "Read-Card.py timed out", "raw_stderr": read_stderr}
 
              
+            if card.get("unsupported_game"):
+                # The provider will reject every card of this game; release this one
+                # to bin 10 and stop instead of failing the whole stack.
+                print(f"Stopping sorting: {card['error']}")
+                sorting_active = False
             if "error" in card:
                 print(f"Error in card info: {card['error']}. Using tray 10 as failover.")
                 led_controller.set_color(255, 30, 30)
@@ -756,9 +761,11 @@ def index():
         csv_enabled = True if request.form.get("save_to_csv") else False
 
         if "start_sorting" in request.form:
-            # ...
+            # Refuse up front if the provider can't recognize the active game
+            # (e.g. a custom pack with the hosted DO Serverless service).
             with lock:
-                should_start = not sorting_active
+                error = games.unsupported_provider_message(active_game, read_config())
+                should_start = not sorting_active and not error
                 if should_start:
                     sorting_active = True
             if should_start:
@@ -842,6 +849,7 @@ def index():
         game=_game,
         games_list=_games,
         bin_summaries={i: games.summarize_criteria(_game, _box_criteria.get(i, {})) for i in _box_criteria},
+        provider_warning=games.unsupported_provider_message(_game, _live_config),
         form_field_name=games.form_field_name,
         moves=_moves,
         monthly_moves=_monthly,
@@ -1044,6 +1052,11 @@ def api_test_recognition():
     recently captured card image, without needing a physical card feed.
     Uses last-saved settings — save first if you just changed something."""
     config = read_config()
+    with lock:
+        _game = active_game
+    unsupported = games.unsupported_provider_message(_game, config)
+    if unsupported:
+        return jsonify({"success": False, "error": unsupported}), 400
     ollama_cfg = config.get("ollama", {})
     base_url = (ollama_cfg.get("base_url") or "").rstrip("/")
     if not base_url:
@@ -1053,8 +1066,7 @@ def api_test_recognition():
 
     with open(SCANNED_IMAGE_DEST, "rb") as f:
         img_b64 = base64.b64encode(f.read()).decode("utf-8")
-    with lock:
-        _prompt = games.resolve_prompt(active_game, config)
+    _prompt = games.resolve_prompt(_game, config)
 
     payload = {
         "model": ollama_cfg.get("model") or "minicpm-v:latest",
@@ -1071,6 +1083,8 @@ def api_test_recognition():
             "seed": int(ollama_cfg.get("seed", 42)),
         },
     }
+    if config.get("recognition_provider") == "do_serverless":
+        payload["game"] = _game["id"]  # DO uses its own server-side prompt per game
     api_key = ollama_cfg.get("api_key", "")
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     timeout = int(ollama_cfg.get("timeout_seconds") or 60)

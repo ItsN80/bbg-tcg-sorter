@@ -17,22 +17,28 @@
             font-family: 'Roboto', sans-serif;
             background-color: #f5f7fa;
             margin: 0;
-            padding: 20px;
+            padding: 14px 20px 20px;
             color: #333;
         }
         h1, h2, h3 {
             color: #2c3e50;
         }
         .page-header {
-            max-width: 1000px;
-            margin: 0 auto;
+            margin-bottom: 12px;
         }
+        /* Top control row: game switcher + tab switcher (matches index.html) */
         .top-bar {
             display: flex;
-            justify-content: flex-end;
-            gap: 8px;
+            justify-content: space-between;
+            align-items: center;
             flex-wrap: wrap;
-            margin-bottom: 14px;
+            gap: 12px;
+        }
+        .switcher-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
         }
         .pill {
             display: inline-flex;
@@ -46,6 +52,7 @@
             background: var(--tile-bg);
             color: var(--muted);
             font-family: inherit;
+            margin: 0;
             text-decoration: none;
             transition: background-color 0.15s, color 0.15s, border-color 0.15s;
         }
@@ -58,6 +65,23 @@
         }
         .pill.active:hover {
             background: var(--ink);
+        }
+        .pill.game-pill.active,
+        .pill.game-pill.active:hover {
+            background: var(--accent);
+            color: #fff;
+        }
+        .pill.game-pill-add,
+        .pill.game-pill-add:hover {
+            background: transparent;
+            border: 1.5px dashed #b7c0c8;
+            color: #9aa5ae;
+            cursor: not-allowed;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px 10px 16px;
+            }
         }
         form {
             max-width: 1000px;
@@ -179,11 +203,16 @@
 <body>
     <div class="page-header">
         <div class="top-bar">
-            <a href="{{ url_for('index') }}" class="pill">Live Sorting</a>
-            <a href="{{ url_for('index') }}?tab=bins" class="pill">Bin Setup</a>
-            <a href="{{ url_for('settings') }}" class="pill active">Settings</a>
+            <div class="switcher-group">
+                <button type="button" class="pill game-pill active">Magic: The Gathering</button>
+                <button type="button" class="pill game-pill-add" disabled title="Coming soon">+ Add game</button>
+            </div>
+            <div class="switcher-group">
+                <a href="{{ url_for('index') }}" class="pill">Live Sorting</a>
+                <a href="{{ url_for('index') }}?tab=bins" class="pill">Bin Setup</a>
+                <a href="{{ url_for('settings') }}" class="pill active">Settings</a>
+            </div>
         </div>
-        <h1>Settings</h1>
         {% if error %}
           <p style="color:red; text-align:center;">{{ error }}</p>
         {% endif %}

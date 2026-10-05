@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 
+import json
+import os
+import socket
 import threading
 import time
 
-import pigpio
+# The strip itself is driven by led_service.py (root, rpi_ws281x hardware
+# timing); this module is its client and keeps the state the web UI shows.
+LED_SOCKET_PATH = os.environ.get("BBG_LED_SOCKET", "/run/bbg-led/led.sock")
 
 DEFAULT_LED_CONFIG = {
     "enabled": True,
@@ -65,16 +70,15 @@ def normalize_led_config(raw):
 
 
 class LEDController:
-    # Match known-working test script timings.
-    T0H_US = 0.35
-    T0L_US = 0.80
-    T1H_US = 0.70
-    T1L_US = 0.60
-    RESET_US = 300
-
-    def __init__(self, config_led=None, max_fps=30):
+    def __init__(self, config_led=None, max_fps=30, socket_path=None):
         normalized = normalize_led_config(config_led)
+        self._socket_path = socket_path or LED_SOCKET_PATH
         self._lock = threading.Lock()
+        # One frame at a time: requests from web handlers and the worker must not
+        # interleave on the service connection.
+        self._render_lock = threading.Lock()
+        self._sock = None
+        self._sock_file = None
         self._stop_event = threading.Event()
         self._dirty_event = threading.Event()
         self._desired_seq = 0
@@ -92,118 +96,77 @@ class LEDController:
             normalized["color"]["b"],
         )
 
-        self._pi = None
         self._available = False
         self._error = ""
 
-        self._connect()
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
         self._mark_dirty()
-
-    def _connect(self):
-        if self._available and self._pi is not None and getattr(self._pi, "connected", False):
-            return True
-        if self._pi is not None:
-            try:
-                self._pi.stop()
-            except Exception:
-                pass
-            self._pi = None
-        try:
-            pi = pigpio.pi()
-        except Exception as exc:
-            self._available = False
-            self._pi = None
-            self._error = f"pigpio connection error: {exc}"
-            return False
-
-        if not pi.connected:
-            self._available = False
-            self._pi = None
-            self._error = "Could not connect to pigpiod. Is pigpiod running?"
-            try:
-                pi.stop()
-            except Exception:
-                pass
-            return False
-
-        self._pi = pi
-        self._pi.set_mode(self._gpio, pigpio.OUTPUT)
-        self._available = True
-        self._error = ""
-        return True
 
     def _mark_dirty(self):
         with self._lock:
             self._desired_seq += 1
             self._dirty_event.set()
 
-    def _build_wave(self, grb_bytes):
-        pulses = []
-        mask = 1 << self._gpio
+    def _disconnect(self):
+        for obj in (self._sock_file, self._sock):
+            try:
+                if obj is not None:
+                    obj.close()
+            except Exception:
+                pass
+        self._sock = None
+        self._sock_file = None
 
-        def add_pulse(level_on, level_off, duration_us):
-            pulses.append(pigpio.pulse(level_on, level_off, int(round(duration_us))))
-
-        for byte in grb_bytes:
-            for bit in range(7, -1, -1):
-                if (byte >> bit) & 1:
-                    add_pulse(mask, 0, self.T1H_US)
-                    add_pulse(0, mask, self.T1L_US)
-                else:
-                    add_pulse(mask, 0, self.T0H_US)
-                    add_pulse(0, mask, self.T0L_US)
-        add_pulse(0, mask, self.RESET_US)
-        return pulses
+    def _send(self, request):
+        """Sends one frame request to led_service.py; reconnects once if the
+        service was restarted. Caller holds _render_lock."""
+        for attempt in (1, 2):
+            try:
+                if self._sock is None:
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    sock.settimeout(2.0)
+                    sock.connect(self._socket_path)
+                    self._sock = sock
+                    self._sock_file = sock.makefile("rwb")
+                self._sock_file.write((json.dumps(request) + "\n").encode())
+                self._sock_file.flush()
+                line = self._sock_file.readline()
+                if not line:
+                    raise ConnectionError("LED service closed the connection")
+                return json.loads(line)
+            except (OSError, ValueError, ConnectionError) as exc:
+                self._disconnect()
+                if attempt == 2:
+                    raise ConnectionError(
+                        f"LED service unavailable ({exc}). Is bbg-led.service running?") from exc
 
     def _render(self, enabled, color, brightness):
-        if not self._connect():
-            return False
-
-        if enabled:
-            r = clamp_u8(int(color[0] * brightness))
-            g = clamp_u8(int(color[1] * brightness))
-            b = clamp_u8(int(color[2] * brightness))
-        else:
-            r, g, b = 0, 0, 0
-
-        data = bytes([g, r, b]) * self._count  # WS2812 GRB ordering
-        pulses = self._build_wave(data)
-
-        try:
-            self._pi.wave_clear()
-            self._pi.wave_add_generic(pulses)
-            wave_id = self._pi.wave_create()
-            if wave_id < 0:
-                self._error = f"pigpio wave_create failed ({wave_id})"
-                self._available = False
+        with self._render_lock:
+            with self._lock:
+                gpio, count = self._gpio, self._count
+            request = {
+                "enabled": bool(enabled),
+                "color": {"r": color[0], "g": color[1], "b": color[2]},
+                "brightness": brightness,
+                "gpio": gpio,
+                "count": count,
+            }
+            try:
+                reply = self._send(request)
+            except ConnectionError as exc:
+                with self._lock:
+                    self._available = False
+                    self._error = str(exc)
                 return False
-            send_res = self._pi.wave_send_once(wave_id)
-            if send_res < 0:
-                self._error = f"pigpio wave_send_once failed ({send_res})"
-                self._pi.wave_delete(wave_id)
+            with self._lock:
+                if reply.get("ok"):
+                    self._available = True
+                    self._error = ""
+                    return True
                 self._available = False
+                self._error = f"LED service error: {reply.get('error')}"
                 return False
-            started = time.time()
-            while self._pi.wave_tx_busy():
-                if time.time() - started > 0.25:
-                    break
-                time.sleep(0.001)
-            self._pi.wave_delete(wave_id)
-            self._error = ""
-            self._available = True
-            return True
-        except Exception as exc:
-            self._error = f"LED render failed: {exc}"
-            self._available = False
-            if self._pi is not None:
-                try:
-                    self._pi.stop()
-                except Exception:
-                    pass
-                self._pi = None
-            return False
 
     def _worker_loop(self):
         while not self._stop_event.is_set():
@@ -234,7 +197,10 @@ class LEDController:
                     with self._lock:
                         self._sent_seq = desired_seq
                 else:
-                    time.sleep(0.05)
+                    # Service down: retry slowly instead of spinning.
+                    time.sleep(1.0)
+                    if self._stop_event.is_set():
+                        break
 
     def is_available(self):
         with self._lock:
@@ -282,7 +248,7 @@ class LEDController:
             target_seq = self._desired_seq + 1
         self._mark_dirty()
 
-        # Force an immediate black frame so "off" is deterministic and does not
+        # Render the off frame now so "off" is deterministic and does not
         # depend solely on worker scheduling.
         rendered = self._render(False, (0, 0, 0), self._brightness)
         if rendered:
@@ -309,17 +275,9 @@ class LEDController:
         self._mark_dirty()
 
     def close(self):
-        # Try to explicitly latch LEDs off before tearing down worker/pigpio.
-        try:
-            self._render(False, (0, 0, 0), self._brightness)
-        except Exception:
-            pass
+        # The LED service keeps the strip lit across web-app restarts; just stop
+        # the worker and drop the connection.
         self._stop_event.set()
         self._dirty_event.set()
-        if self._worker.is_alive():
-            self._worker.join(timeout=1.0)
-        if self._pi is not None:
-            try:
-                self._pi.stop()
-            except Exception:
-                pass
+        with self._render_lock:
+            self._disconnect()

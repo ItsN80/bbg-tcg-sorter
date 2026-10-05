@@ -315,6 +315,27 @@ def test_sorting_stops_when_server_rejects_game(web):
     assert module.bin_counts[10] == 1
 
 
+def test_sorting_and_stop_never_change_led_colour(web):
+    """The LEDs light the card for the camera: no status colours, and Stop
+    doesn't switch them off mid-card."""
+    module, client, root = web
+    module.led_controller.reset_mock()
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1].endswith("Read-Card.py"):
+            module.sorting_active = False
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"error": "unreadable"}), stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    module.sorting_active = True
+    with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+         mock.patch.object(module.time, "sleep"):
+        module.sorting_loop()  # a failed read used to flash red
+    client.post("/", data={"stop_sorting": "1"})
+    led = module.led_controller
+    assert not led.set_color.called and not led.off.called
+
+
 def test_camera_test_saves_card_crop_and_reports_capture_errors(web):
     module, client, root = web
     html = client.get("/camera_test").get_data(as_text=True)

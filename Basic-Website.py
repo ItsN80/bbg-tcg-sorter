@@ -486,13 +486,8 @@ def send_shutdown_summary_email(config):
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count, do_credits
     global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts
-    led_controller.set_mode("sorting")
-    _led_state = led_controller.get_state()
-    _idle_color = (
-        _led_state.get("color", {}).get("r", 0),
-        _led_state.get("color", {}).get("g", 140),
-        _led_state.get("color", {}).get("b", 255),
-    )
+    # The LEDs light the card for the camera, so they stay at the configured
+    # colour the whole time (no status colours, which would tint the scans).
     _live_config = read_config()
     # One game per run: snapshot it so a mid-run change can't mix rule sets.
     with lock:
@@ -585,7 +580,6 @@ def sorting_loop():
                 sorting_active = False
             if "error" in card:
                 print(f"Error in card info: {card['error']}. Using tray 10 as failover.")
-                led_controller.set_color(255, 30, 30)
                 selected_box = 10
                 with stats_lock:
                     failed_read_count += 1
@@ -679,7 +673,6 @@ def sorting_loop():
         except Exception as ex:
             print(f"Unexpected error: {ex}")
         
-        led_controller.set_color(*_idle_color)
         with stats_lock:
             move_count += 1
             monthly_move_count += 1
@@ -693,7 +686,6 @@ def sorting_loop():
                 with stats_lock:
                     do_credits = _bal
         time.sleep(0.5)
-    led_controller.set_color(*_idle_color)
 
 PUBLIC_ENDPOINTS = {"login", "static"}
 
@@ -776,7 +768,6 @@ def index():
 
         elif "stop_sorting" in request.form:
             sorting_active = False
-            led_controller.off()
             if sorting_thread:
                 sorting_thread.join(timeout=15)
                 if sorting_thread.is_alive():

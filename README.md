@@ -149,6 +149,22 @@ sudo systemctl enable --now card-sorter.service
 
 Again, replace `YOUR_USERNAME` with your actual Pi username in both `User=` and the paths.
 
+#### LED strip service
+
+The WS2812 strip on GPIO 12 is driven by a small root service (`led_service.py`) using
+the `rpi_ws281x` library, which times the LED data in hardware. The web app talks to it
+over a local socket and keeps running if it's down (the LEDs just stay dark).
+
+```bash
+sudo pip3 install --break-system-packages rpi_ws281x
+sudo cp systemd/bbg-led.service /etc/systemd/system/   # edit the path in ExecStart if your username isn't admin
+sudo systemctl daemon-reload
+sudo systemctl enable --now bbg-led.service
+```
+
+The Pi's analog audio uses the same PWM hardware, so turn it off: in
+`/boot/firmware/config.txt` change `dtparam=audio=on` to `dtparam=audio=off`, then reboot.
+
 ### 7. Allow the app to reboot/shutdown/update the Pi (optional but recommended)
 
 The web UI has buttons to reboot, shut down, and self-update the Pi, which need

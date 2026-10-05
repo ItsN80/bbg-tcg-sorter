@@ -14,3 +14,5 @@ boto3==1.42.21
 pigpio==1.78
 Adafruit-Blinka==9.1.0
 adafruit-circuitpython-pca9685==3.4.22
+# rpi_ws281x is used by led_service.py, which runs as root; install it for root:
+#   sudo pip3 install --break-system-packages rpi_ws281x

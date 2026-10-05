@@ -1,0 +1,22 @@
+# LED strip service for the BBG TCG sorter. Runs as root because rpi_ws281x
+# needs /dev/mem for its hardware-timed (PWM + DMA) WS2812 output.
+# Install:
+#   sudo pip3 install --break-system-packages rpi_ws281x
+#   sudo cp systemd/bbg-led.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now bbg-led.service
+# Also set dtparam=audio=off in /boot/firmware/config.txt (analog audio shares
+# the PWM hardware) and reboot.
+[Unit]
+Description=BBG card sorter LED strip (rpi_ws281x)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /home/admin/bbg-tcg-sorter/led_service.py
+RuntimeDirectory=bbg-led
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

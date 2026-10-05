@@ -5,6 +5,9 @@ from datetime import datetime
 from picamera2 import Picamera2
 from PIL import Image
 import shutil  # Added for copying files
+import sys
+
+import image_crops  # scripts/: PIL crop helpers shared with Read-Card.py
 
 # Base directory of the script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,6 +22,12 @@ os.makedirs(output_directory_scanned, exist_ok=True)
 
 # Path to config.json
 CONFIG_PATH = os.path.join(output_directory, "config.json")
+
+# Previews shown on the Camera Testing page (separate from card_scanned.png,
+# which a live scan overwrites with the image it sent for recognition)
+ORIGINAL_PREVIEW = os.path.join(output_directory_scanned, "camera_test_original.png")
+CARD_CROP_PREVIEW = os.path.join(output_directory_scanned, "camera_test_card_crop.jpg")
+COMBINED_CROP_PREVIEW = os.path.join(output_directory_scanned, "camera_test_combined_crop.jpg")
 
 # Suppress libcamera logs
 os.environ["LIBCAMERA_LOG_LEVELS"] = "3"
@@ -73,30 +82,6 @@ def crop_and_rotate_image(input_file, output_file):
         rotated_img = cropped_img.rotate(90, expand=True)
         rotated_img.save(output_file)
 
-def crop_combined_areas(image_path):
-    with Image.open(image_path) as img:
-        crop_cfg = config.get("camera_crop", {})
-        top = crop_cfg.get("top_crop", {})
-        bot = crop_cfg.get("bottom_crop", {})
-
-        crop1 = img.crop((top.get("x1", 160), top.get("y1", 155),
-                          top.get("x2", 577), top.get("y2", 235)))
-
-        crop2 = img.crop((bot.get("x1", 160), bot.get("y1", 828),
-                          bot.get("x2", 577), bot.get("y2", 885)))
-
-        combined_width = max(crop1.width, crop2.width)
-        combined_height = crop1.height + crop2.height
-        combined_img = Image.new("RGB", (combined_width, combined_height), color=(255, 255, 255))
-
-        combined_img.paste(crop1, (0, 0))
-        combined_img.paste(crop2, (0, crop1.height))
-
-        combined_path = os.path.join(output_directory_scanned, "combined_crop.jpg")
-        combined_img.save(combined_path)
-
-        return combined_path, crop1.height
-
 def cleanup_images(*file_paths):
     """Deletes the specified image files."""
     for file_path in file_paths:
@@ -106,25 +91,28 @@ def cleanup_images(*file_paths):
 def main():
     """
     1. Captures and processes an image.
-    2. Crops two regions (top for name, bottom for collector number & set code) and combines them.
+    2. Crops the whole card (what vision providers are sent).
+    3. Crops two regions (top for name, bottom for collector number & set code) and combines them.
+    All crop coordinates are pixels in the processed image saved in step 1.
     """
+    processed_image = None
     try:
         processed_image = capture_image()
 
         # Save full scan
-        scanned_copy = os.path.join(output_directory_scanned, "card_scanned.png")
-        shutil.copy(processed_image, scanned_copy)
+        shutil.copy(processed_image, ORIGINAL_PREVIEW)
 
-        # ✅ Generate the cropped & combined image
-        crop_combined_areas(processed_image)
+        image_crops.crop_card_area(processed_image, config.get("card_crop"), CARD_CROP_PREVIEW)
+        image_crops.crop_combined_areas(processed_image, config.get("camera_crop"), COMBINED_CROP_PREVIEW)
 
     except Exception as e:
+        # Non-zero exit so the Camera Testing page shows the error
         print(json.dumps({"error": f"Image capture/process error: {str(e)}"}))
-        return
-
-    # Clean up temp image file (but leave cropped & scanned versions)
-    cleanup_images(processed_image)
-
+        sys.exit(1)
+    finally:
+        # Clean up temp image file (but leave cropped & scanned versions)
+        if processed_image:
+            cleanup_images(processed_image)
 
 if __name__ == "__main__":
     main()

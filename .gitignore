@@ -13,6 +13,8 @@ counters/failed_reads.txt
 static/images/failed/*
 storage/combined_crop.jpg
 static/images/combined_crop.jpg
+storage/card_crop.jpg
+static/images/camera_test_*
 storage/failed_reads.jsonl
 __pycache__/
 *.py[cod]

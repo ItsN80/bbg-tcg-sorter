@@ -77,3 +77,13 @@ def test_server_400_unsupported_game_is_a_hard_error(image):
         with pytest.raises(read_card.UnsupportedGameError):
             read_card.recognize_with_ollama(image, DO_CONFIG, fab)
     assert post.call_count == 1  # no retry
+
+
+def test_vision_providers_get_card_crop_and_aws_gets_full_image():
+    mtg = games.get_game("mtg", strict=True)
+    with mock.patch.object(read_card, "recognize_with_ollama", return_value="ollama") as ollama, \
+         mock.patch.object(read_card, "recognize_with_aws", return_value="aws") as aws:
+        assert read_card.recognize_card("full.jpg", "card.jpg", DO_CONFIG, mtg) == "ollama"
+        assert read_card.recognize_card("full.jpg", "card.jpg", {"recognition_provider": "aws"}, mtg) == "aws"
+    assert ollama.call_args.args[0] == "card.jpg"
+    assert aws.call_args.args[0] == "full.jpg"

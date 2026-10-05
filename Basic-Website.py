@@ -1443,8 +1443,20 @@ def camera_test():
             "bottom_crop": {"x1": 160, "y1": 828, "x2": 577, "y2": 885}
         }
 
+    # Whole-card crop (game-independent: the card sits in the same spot for
+    # every game). Unset = Read-Card.py sends the full processed image, which
+    # is 756x960 (1920x1080 capture, margins trimmed, rotated 90°).
+    if not isinstance(config.get("card_crop"), dict):
+        config["card_crop"] = {"x1": 0, "y1": 0, "x2": 756, "y2": 960}
+
     if request.method == "POST":
         try:
+            config["card_crop"] = {
+                "x1": int(request.form.get("card_x1", 0)),
+                "y1": int(request.form.get("card_y1", 0)),
+                "x2": int(request.form.get("card_x2", 756)),
+                "y2": int(request.form.get("card_y2", 960))
+            }
             config["camera_crop"] = {
                 "top_crop": {
                     "x1": int(request.form.get("top_x1", 0)),
@@ -1461,11 +1473,20 @@ def camera_test():
             }
 
             write_config(config)
-            subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Test-Camera.py")], check=True, timeout=30)
+            result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Test-Camera.py")],
+                                    capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                detail = (result.stdout.strip() or result.stderr.strip())[-500:]
+                try:
+                    detail = json.loads(detail).get("error", detail)
+                except (ValueError, AttributeError):
+                    pass
+                error = f"Settings saved, but the test capture failed: {detail}"
         except Exception as e:
             error = f"Failed to update camera settings: {str(e)}"
 
-    return render_template("camera_test.html", config=config, error=error)
+    # Cache-buster so the previews always show the latest capture
+    return render_template("camera_test.html", config=config, error=error, cache_bust=int(time.time()))
     
 @app.route("/run_script")
 def run_script():

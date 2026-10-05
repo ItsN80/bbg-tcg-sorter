@@ -313,3 +313,23 @@ def test_sorting_stops_when_server_rejects_game(web):
     assert not module.sorting_active
     assert sum(1 for c in calls if c[1].endswith("Read-Card.py")) == 1
     assert module.bin_counts[10] == 1
+
+
+def test_camera_test_saves_card_crop_and_reports_capture_errors(web):
+    module, client, root = web
+    html = client.get("/camera_test").get_data(as_text=True)
+    assert 'name="card_x2" value="756"' in html  # unset = full processed image
+    for title in ("Original Image", "Whole Card Cropped Image", "Cropped Combined Image"):
+        assert title in html
+
+    form = {"card_x1": "170", "card_y1": "110", "card_x2": "735", "card_y2": "890",
+            "top_x1": "160", "top_y1": "155", "top_x2": "577", "top_y2": "235",
+            "bottom_x1": "160", "bottom_y1": "828", "bottom_x2": "577", "bottom_y2": "885"}
+    failed = subprocess.CompletedProcess([], 1, stdout=json.dumps({"error": "top_crop is empty"}), stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=failed) as run:
+        html = client.post("/camera_test", data=form).get_data(as_text=True)
+    assert run.call_args.args[0][1].endswith("Test-Camera.py")
+    assert "test capture failed: top_crop is empty" in html
+    saved = json.loads((root / "storage" / "config.json").read_text())
+    assert saved["card_crop"] == {"x1": 170, "y1": 110, "x2": 735, "y2": 890}
+    assert saved["camera_crop"]["top_crop"]["y2"] == 235

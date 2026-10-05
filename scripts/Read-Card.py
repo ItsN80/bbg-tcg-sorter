@@ -19,6 +19,7 @@ for _p in (BASE_DIR, REPO_ROOT):
         sys.path.insert(0, _p)
 
 import games  # noqa: E402  (repo root: game registry, no hardware imports)
+import image_crops  # noqa: E402  (scripts/: PIL crop helpers shared with Test-Camera.py)
 import recognition  # noqa: E402  (scripts/: pure recognition helpers)
 from recognition import (  # noqa: E402,F401  (re-exported for backwards compatibility)
     UNKNOWN,
@@ -171,31 +172,17 @@ def rotate_image(input_file, output_file):
         rotated_img = img.rotate(90, expand=True)
         rotated_img.save(output_file)
 
+def crop_card_area(image_path, config):
+    """Whole-card crop (config["card_crop"], set on the Camera Testing page):
+    the image the vision providers see. Unset = the full processed image."""
+    card_path = os.path.join(output_directory, "card_crop.jpg")
+    return image_crops.crop_card_area(image_path, config.get("card_crop"), card_path)
+
 def crop_combined_areas(image_path, crop_cfg):
     """crop_cfg: {"top_crop": {x1,y1,x2,y2}, "bottom_crop": {...}} from
-    games.resolve_camera_crop(); missing values fall back to the defaults below."""
-    with Image.open(image_path) as img:
-        crop_cfg = crop_cfg or {}
-        top = crop_cfg.get("top_crop", {}) or {}
-        bot = crop_cfg.get("bottom_crop", {}) or {}
-
-        crop1 = img.crop((top.get("x1", 160), top.get("y1", 155),
-                          top.get("x2", 577), top.get("y2", 235)))
-
-        crop2 = img.crop((bot.get("x1", 160), bot.get("y1", 828),
-                          bot.get("x2", 577), bot.get("y2", 885)))
-
-        combined_width = max(crop1.width, crop2.width)
-        combined_height = crop1.height + crop2.height
-        combined_img = Image.new("RGB", (combined_width, combined_height), color=(255, 255, 255))
-
-        combined_img.paste(crop1, (0, 0))
-        combined_img.paste(crop2, (0, crop1.height))
-
-        combined_path = os.path.join(output_directory, "combined_crop.jpg")
-        combined_img.save(combined_path)
-
-        return combined_path, crop1.height
+    games.resolve_camera_crop(); missing values fall back to image_crops' defaults."""
+    combined_path = os.path.join(output_directory, "combined_crop.jpg")
+    return image_crops.crop_combined_areas(image_path, crop_cfg, combined_path)
 
 
 def detect_text_combined(image_path, crop1_height, aws_config):
@@ -377,11 +364,13 @@ def recognize_with_ollama(processed_image, config, game):
         return recognition.unknown_result(game)
 
 
-def recognize_card(processed_image, config, game):
+def recognize_card(processed_image, card_image, config, game):
+    """Vision providers get the whole-card crop; AWS crops its top/bottom text
+    regions from the processed image (those coordinates are in its pixels)."""
     provider = (config.get("recognition_provider") or "aws").lower().strip()
     debug_log(debug_enabled(config), f"Dispatching recognition provider: {provider}")
     if provider in ("ollama", "do_serverless"):
-        return recognize_with_ollama(processed_image, config, game)
+        return recognize_with_ollama(card_image, config, game)
     return recognize_with_aws(processed_image, config, game)
 
 
@@ -402,16 +391,21 @@ def main():
         game_id = game["id"]
         debug_log(dbg, f"Active game: {game_id} (lookup={game.get('lookup', {}).get('type')})")
         processed_image = None
+        card_image = None
         processed_image = capture_image(config)
         debug_log(dbg, f"Processed image ready: {processed_image}")
+        card_image = crop_card_area(processed_image, config)
+        debug_log(dbg, f"Whole-card crop ready: {card_image} (card_crop={config.get('card_crop')})")
 
-        # Create a permanent copy called "card_scanned.png" in the same directory.
+        # Create a permanent copy called "card_scanned.png": the whole-card crop
+        # that vision providers are sent (shown on the dashboard, saved with
+        # failed/successful scans, and re-sent by "Test recognition").
         scanned_copy = os.path.join(output_directory_scanned, "card_scanned.png")
-        shutil.copy(processed_image, scanned_copy)
-        debug_log(dbg, f"Copied processed image to UI path: {scanned_copy}")
+        shutil.copy(card_image, scanned_copy)
+        debug_log(dbg, f"Copied whole-card crop to UI path: {scanned_copy}")
 
         # Provider-aware recognition
-        recognized = recognize_card(processed_image, config, game)
+        recognized = recognize_card(processed_image, card_image, config, game)
         debug_log(dbg, f"Recognition output: {json.dumps(recognized)}")
 
     except UnsupportedGameError as e:

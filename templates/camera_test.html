@@ -7,48 +7,87 @@
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --card-colour: #2ecc71;
+            --text-colour: #e67e22;
+        }
+        * {
+            box-sizing: border-box;
+        }
         body {
             font-family: 'Roboto', sans-serif;
             background-color: #f5f7fa;
             margin: 0;
-            padding: 20px;
+            padding: 12px 16px;
             color: #333;
         }
         h1, h2 {
             text-align: center;
             color: #2c3e50;
+            margin: 0;
         }
+        h1 {
+            font-size: 1.6rem;
+            margin-bottom: 10px;
+        }
+        h2 {
+            font-size: 1rem;
+            margin-bottom: 6px;
+        }
+        .error {
+            color: red;
+            text-align: center;
+            margin: 0 0 10px;
+        }
+        /* Fields | Original | Whole card: everything fits one 1080p browser window */
         form {
-            max-width: 1000px;
-            margin: auto;
+            display: grid;
+            grid-template-columns: 400px minmax(0, 1fr) minmax(0, 1fr);
+            gap: 14px;
+            align-items: start;
+        }
+        .panel {
             background-color: #fff;
-            padding: 20px;
+            padding: 12px;
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
         .section {
-            margin-bottom: 30px;
-            padding: 15px;
+            padding: 10px 12px;
             border-radius: 8px;
             background-color: #fdfdfd;
             border: 1px solid #dcdcdc;
+            border-left: 5px solid var(--swatch);
+        }
+        .section h2 {
+            text-align: left;
+        }
+        .coords {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
         }
         label {
             display: block;
-            margin-top: 10px;
+            font-size: 0.85em;
             font-weight: 500;
         }
         input[type="number"] {
             width: 100%;
-            padding: 8px;
-            margin-top: 5px;
+            padding: 6px;
+            margin-top: 3px;
             border: 1px solid #ccc;
             border-radius: 4px;
-            box-sizing: border-box;
         }
         .form-actions {
-            text-align: center;
-            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
         }
         button {
             padding: 10px 20px;
@@ -57,7 +96,6 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            margin: 10px;
         }
         button:hover {
             background-color: #2980b9;
@@ -65,16 +103,48 @@
         img {
             display: block;
             max-width: 100%;
-            margin: 10px auto;
+            margin: 0 auto;
             border-radius: 8px;
             border: 1px solid #ccc;
         }
-        .image-box {
-            background-color: #f7f9fb;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid #ddd;
-            margin-top: 20px;
+        /* Header + padding + panel title take ~140px; the photos get the rest */
+        .photo {
+            max-height: calc(100vh - 140px);
+        }
+        .hint {
+            text-align: center;
+            color: #666;
+            font-size: 0.85em;
+            margin: 0 0 6px;
+        }
+        .section .hint {
+            text-align: left;
+        }
+        .overlay-wrap {
+            position: relative;
+            width: fit-content;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        .overlay-wrap canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        @media (max-width: 1300px) {
+            form {
+                grid-template-columns: 1fr;
+            }
+            .controls {
+                max-width: 600px;
+                width: 100%;
+                margin: 0 auto;
+            }
+            .photo {
+                max-height: none;
+            }
         }
     </style>
 </head>
@@ -82,53 +152,93 @@
     <h1>Camera Testing</h1>
 
     {% if error %}
-        <p style="color:red; text-align:center;">{{ error }}</p>
+        <p class="error">{{ error }}</p>
     {% endif %}
 
     <form method="POST">
-        <div class="section">
-            <h2>Top Crop Coordinates</h2>
-            <label for="top_x1">Top X1:</label>
-            <input type="number" name="top_x1" value="{{ config.camera_crop.top_crop.x1 }}">
+        <div class="controls">
+            <p class="hint">All coordinates are pixels in the Original Image; each box is outlined on it in its section's colour.</p>
 
-            <label for="top_y1">Top Y1:</label>
-            <input type="number" name="top_y1" value="{{ config.camera_crop.top_crop.y1 }}">
+            {% for prefix, title, crop, swatch, hint in [
+                ("card", "Whole Card Crop Coordinates", config.card_crop, "--card-colour",
+                 "Sent to Ollama / DO Serverless for identification."),
+                ("top", "Top Crop Coordinates", config.camera_crop.top_crop, "--text-colour", ""),
+                ("bottom", "Bottom Crop Coordinates", config.camera_crop.bottom_crop, "--text-colour", ""),
+            ] %}
+            <div class="section" style="--swatch: var({{ swatch }})">
+                <h2>{{ title }}</h2>
+                {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+                <div class="coords">
+                    {% for c in ("x1", "y1", "x2", "y2") %}
+                    <label for="{{ prefix }}_{{ c }}">{{ c | upper }}
+                        <input type="number" id="{{ prefix }}_{{ c }}" name="{{ prefix }}_{{ c }}" value="{{ crop[c] }}">
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
 
-            <label for="top_x2">Top X2:</label>
-            <input type="number" name="top_x2" value="{{ config.camera_crop.top_crop.x2 }}">
+            <div class="form-actions">
+                <button type="submit">Capture & Save Crops</button>
+                <a href="{{ url_for('settings') }}"><button type="button">Back to Settings</button></a>
+            </div>
 
-            <label for="top_y2">Top Y2:</label>
-            <input type="number" name="top_y2" value="{{ config.camera_crop.top_crop.y2 }}">
+            <div class="panel">
+                <h2>Cropped Combined Image</h2>
+                <img src="/static/images/camera_test_combined_crop.jpg?t={{ cache_bust }}" alt="Cropped Combined Image">
+            </div>
         </div>
 
-        <div class="section">
-            <h2>Bottom Crop Coordinates</h2>
-            <label for="bottom_x1">Bottom X1:</label>
-            <input type="number" name="bottom_x1" value="{{ config.camera_crop.bottom_crop.x1 }}">
-
-            <label for="bottom_y1">Bottom Y1:</label>
-            <input type="number" name="bottom_y1" value="{{ config.camera_crop.bottom_crop.y1 }}">
-
-            <label for="bottom_x2">Bottom X2:</label>
-            <input type="number" name="bottom_x2" value="{{ config.camera_crop.bottom_crop.x2 }}">
-
-            <label for="bottom_y2">Bottom Y2:</label>
-            <input type="number" name="bottom_y2" value="{{ config.camera_crop.bottom_crop.y2 }}">
+        <div class="panel">
+            <h2>Original Image <span class="hint" id="originalSizeText"></span></h2>
+            <div class="overlay-wrap">
+                <img class="photo" id="originalImage" src="/static/images/camera_test_original.png?t={{ cache_bust }}" alt="Original Image">
+                <canvas id="cropOverlay"></canvas>
+            </div>
         </div>
 
-        <div class="form-actions">
-            <button type="submit">Capture & Save Crops</button>
-            <a href="{{ url_for('settings') }}"><button type="button">Back to Settings</button></a>
-        </div>
-
-        <div class="image-box">
-            <h2>Original Image</h2>
-            <img src="/static/images/card_scanned.png">
-        </div>
-        <div class="image-box">
-            <h2>Cropped Combined Image</h2>
-            <img src="/static/images/combined_crop.jpg">
+        <div class="panel">
+            <h2>Whole Card Cropped Image</h2>
+            <img class="photo" src="/static/images/camera_test_card_crop.jpg?t={{ cache_bust }}" alt="Whole Card Cropped Image">
         </div>
     </form>
+
+    <script>
+        // Outlines the current (unsaved) coordinates on the original capture,
+        // so boxes can be lined up before pressing Capture & Save.
+        (function () {
+            const img = document.getElementById("originalImage");
+            const canvas = document.getElementById("cropOverlay");
+            const css = getComputedStyle(document.documentElement);
+            const cardColour = css.getPropertyValue("--card-colour").trim();
+            const textColour = css.getPropertyValue("--text-colour").trim();
+            const boxes = [["card", cardColour], ["top", textColour], ["bottom", textColour]];
+
+            function value(id) {
+                return parseInt(document.getElementById(id).value, 10) || 0;
+            }
+
+            function draw() {
+                if (!img.naturalWidth) return;
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                document.getElementById("originalSizeText").textContent =
+                    "(" + img.naturalWidth + " × " + img.naturalHeight + " px)";
+                const ctx = canvas.getContext("2d");
+                ctx.lineWidth = Math.max(2, img.naturalWidth / 250);
+                boxes.forEach(function ([prefix, color]) {
+                    const x1 = value(prefix + "_x1"), y1 = value(prefix + "_y1");
+                    ctx.strokeStyle = color;
+                    ctx.strokeRect(x1, y1, value(prefix + "_x2") - x1, value(prefix + "_y2") - y1);
+                });
+            }
+
+            img.addEventListener("load", draw);
+            if (img.complete) draw();
+            document.querySelectorAll('input[type="number"]').forEach(function (input) {
+                input.addEventListener("input", draw);
+            });
+        })();
+    </script>
 </body>
 </html>

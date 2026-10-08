@@ -2,7 +2,6 @@
 import json
 import os
 from datetime import datetime
-from picamera2 import Picamera2
 from PIL import Image
 import shutil  # Added for copying files
 import sys
@@ -11,6 +10,9 @@ import image_crops  # scripts/: PIL crop helpers shared with Read-Card.py
 
 # Base directory of the script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.normpath(os.path.join(BASE_DIR, "..")))
+
+import camera_client  # noqa: E402  (repo root: stills from the shared camera service)
 
 # Paths relative to the script location
 output_directory = os.path.normpath(os.path.join(BASE_DIR, "..", "storage"))
@@ -39,30 +41,18 @@ def load_config(config_file):
 
 config = load_config(CONFIG_PATH)
 
-# Set up the camera
-camera = Picamera2()
-
 def get_filename():
     """Generate a timestamped filename."""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     return f"image_{timestamp}.jpg"
 
 def capture_image():
-    """Captures an image using Picamera2 and processes it."""
-    raw_file = os.path.join(output_directory, "raw_image.jpg")
+    """Captures an image (via the camera service, else the camera directly) and processes it."""
+    # Not raw_image.jpg: with the shared camera this can now run while Read-Card.py does.
+    raw_file = os.path.join(output_directory, "test_raw_image.jpg")
     processed_file = os.path.join(output_directory, get_filename())
 
-    # Ensure the camera is initialized
-    camera_info = Picamera2.global_camera_info()
-    if not camera_info:
-        raise RuntimeError("No cameras found!")
-
-    # Configure, capture, then stop the camera
-    camera.configure(camera.create_preview_configuration(
-        main={"format": "RGB888", "size": (1920, 1080)}))
-    camera.start()
-    camera.capture_file(raw_file)
-    camera.stop()
+    camera_client.capture_to(raw_file)
 
     # Crop and rotate the captured image (if needed)
     crop_and_rotate_image(raw_file, processed_file)

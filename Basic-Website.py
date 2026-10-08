@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session
+from flask import Flask, Response, render_template, request, jsonify, redirect, url_for, send_file, session
 import subprocess
 import os
 import secrets
@@ -19,6 +19,7 @@ import smtplib
 from email.mime.text import MIMEText
 from werkzeug.security import generate_password_hash, check_password_hash
 from led_controller import LEDController, normalize_led_config
+import camera_client
 import games
 import game_packs
 
@@ -870,12 +871,18 @@ def get_move_count_route():
         _card_set = card_identified_set
         _card_collector = card_identified_collector_number
         _bin_counts = dict(bin_counts)
+    try:
+        # Lets the page reload the (~100 KB) scanned image only when it changed.
+        _scanned_version = os.stat(SCANNED_IMAGE_DEST).st_mtime_ns
+    except OSError:
+        _scanned_version = 0
     return jsonify({
         "moves": _moves,
         "monthly_moves": _monthly,
         "failed_reads": _failed,
         "card_identified_url": _url,
         "card_scanned_url": "/static/images/card_scanned.png",
+        "card_scanned_version": _scanned_version,
         "credits": _credits,
         "card_identified_name": _card_name,
         "card_identified_set": _card_set,
@@ -1514,6 +1521,39 @@ def run_script():
         return "Script timed out", 500
     except subprocess.CalledProcessError as e:
         return f"Script failed:\n{e.output.decode()}", 500
+
+# Each open live view holds one of waitress's 8 threads for as long as it's open.
+STREAM_VIEWER_LIMIT = 3
+stream_slots = threading.BoundedSemaphore(STREAM_VIEWER_LIMIT)
+
+@app.route("/camera/stream", methods=["GET"])
+def camera_stream():
+    """Live camera view, relayed from camera_service.py so it sits behind the login."""
+    if not stream_slots.acquire(blocking=False):
+        return "Too many live views open", 503
+    try:
+        upstream = requests.get(camera_client.CAMERA_SERVICE_URL + "/stream.mjpg", stream=True, timeout=(2, 10))
+        upstream.raise_for_status()
+    except requests.RequestException as e:
+        stream_slots.release()
+        return f"Camera service unavailable: {e}", 503
+
+    def release():
+        # Runs when the viewer disconnects (waitress closes the response), even
+        # if the relay never started, so the slot and upstream aren't leaked.
+        upstream.close()
+        stream_slots.release()
+
+    def relay():
+        try:
+            yield from upstream.iter_content(chunk_size=4096)
+        except requests.RequestException:
+            pass  # service stopped or stalled; the page shows "Live view unavailable"
+
+    response = Response(relay(), content_type=upstream.headers.get("Content-Type"))
+    response.headers["Cache-Control"] = "no-store"
+    response.call_on_close(release)
+    return response
 
 @app.route("/sensor_status", methods=["GET"])
 def sensor_status():

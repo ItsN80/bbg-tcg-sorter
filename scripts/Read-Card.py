@@ -3,9 +3,7 @@ import contextlib
 import json
 import os
 from datetime import datetime
-from picamera2 import Picamera2
 from PIL import Image
-import boto3
 import requests
 import base64
 import shutil  # Added for copying files
@@ -18,6 +16,7 @@ for _p in (BASE_DIR, REPO_ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import camera_client  # noqa: E402  (repo root: stills from the shared camera service)
 import games  # noqa: E402  (repo root: game registry, no hardware imports)
 import image_crops  # noqa: E402  (scripts/: PIL crop helpers shared with Test-Camera.py)
 import recognition  # noqa: E402  (scripts/: pure recognition helpers)
@@ -96,16 +95,6 @@ def load_active_game():
         # rather than silently looking the card up as another game.
         return games.get_game(requested, strict=True)
 
-# Camera is created lazily (first capture) so this module can be imported
-# without opening the camera.
-camera = None
-
-def get_camera():
-    global camera
-    if camera is None:
-        camera = Picamera2()
-    return camera
-
 def get_filename():
     """Generate a timestamped filename."""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -117,27 +106,14 @@ def image_to_base64(image_path: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 def capture_image(config):
-    """Captures an image using Picamera2 and processes it."""
+    """Captures an image (via the camera service, else the camera directly) and processes it."""
     dbg = debug_enabled(config)
     raw_file = os.path.join(output_directory, "raw_image.jpg")
     processed_file = os.path.join(output_directory, get_filename())
     debug_log(dbg, f"Starting image capture. raw_file={raw_file} processed_file={processed_file}")
 
-    # Ensure the camera is initialized
-    cam = get_camera()
-    camera_info = Picamera2.global_camera_info()
-    if not camera_info:
-        raise RuntimeError("No cameras found!")
-    debug_log(dbg, f"Cameras detected: {len(camera_info)}")
-
-    # Configure, capture, then stop the camera
-    cam.configure(cam.create_preview_configuration(
-        main={"format": "RGB888", "size": (1920, 1080)}))
-    debug_log(dbg, "Camera configured for 1920x1080 RGB preview capture")
-    cam.start()
-    cam.capture_file(raw_file)
-    cam.stop()
-    debug_log(dbg, "Image captured and camera stopped")
+    source = camera_client.capture_to(raw_file)
+    debug_log(dbg, f"Image captured ({source} camera)")
 
     provider = (config.get("recognition_provider") or "aws").lower().strip()
     debug_log(dbg, f"Recognition provider selected: {provider}")
@@ -190,6 +166,8 @@ def detect_text_combined(image_path, crop1_height, aws_config):
     Runs AWS Rekognition on the combined image and separates OCR LINE results
     into top (card name) and bottom (set / number etc.) lists.
     """
+    import boto3  # slow (~1s) import, only needed for the AWS provider
+
     aws_access_key_id = aws_config.get("access_key_id")
     aws_secret_access_key = aws_config.get("secret_access_key")
     region_name = aws_config.get("region_name")
@@ -400,8 +378,10 @@ def main():
         # Create a permanent copy called "card_scanned.png": the whole-card crop
         # that vision providers are sent (shown on the dashboard, saved with
         # failed/successful scans, and re-sent by "Test recognition").
+        # Copied then renamed into place so the dashboard never loads a half-written file.
         scanned_copy = os.path.join(output_directory_scanned, "card_scanned.png")
-        shutil.copy(card_image, scanned_copy)
+        shutil.copy(card_image, scanned_copy + ".tmp")
+        os.replace(scanned_copy + ".tmp", scanned_copy)
         debug_log(dbg, f"Copied whole-card crop to UI path: {scanned_copy}")
 
         # Provider-aware recognition

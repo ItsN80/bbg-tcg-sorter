@@ -36,7 +36,7 @@ def _fake_hardware_modules():
 def web(tmp_path, monkeypatch):
     root = tmp_path / "sorter"
     root.mkdir()
-    for name in ("Basic-Website.py", "games.py", "game_packs.py"):
+    for name in ("Basic-Website.py", "games.py", "game_packs.py", "camera_client.py"):
         shutil.copy(os.path.join(REPO, name), root / name)
     shutil.copytree(os.path.join(REPO, "games"), root / "games")
     shutil.copytree(os.path.join(REPO, "templates"), root / "templates")
@@ -49,8 +49,8 @@ def web(tmp_path, monkeypatch):
               "2": {"name": "", "type": "Legendary Creature", "colors": ["W", "U"], "cmc": "", "set_symbol": ""}}
     (root / "storage" / "bin-info.json").write_text(json.dumps(legacy))
 
-    saved_modules = {k: sys.modules.get(k) for k in ("games", "game_packs", "pigpio", "led_controller")}
-    for k in ("games", "game_packs"):
+    saved_modules = {k: sys.modules.get(k) for k in ("games", "game_packs", "camera_client", "pigpio", "led_controller")}
+    for k in ("games", "game_packs", "camera_client"):
         sys.modules.pop(k, None)
     sys.modules.update(_fake_hardware_modules())
     monkeypatch.syspath_prepend(str(root))
@@ -354,3 +354,47 @@ def test_camera_test_saves_card_crop_and_reports_capture_errors(web):
     saved = json.loads((root / "storage" / "config.json").read_text())
     assert saved["card_crop"] == {"x1": 170, "y1": 110, "x2": 735, "y2": 890}
     assert saved["camera_crop"]["top_crop"]["y2"] == 235
+
+
+# --- camera: live view relay + scanned-image refresh ---
+def test_camera_stream_relays_and_frees_its_slot(web):
+    module, client, root = web
+    upstream = mock.MagicMock(headers={"Content-Type": "multipart/x-mixed-replace; boundary=FRAME"})
+    upstream.iter_content.return_value = iter([b"--FRAME\r\n", b"jpeg"])
+    with mock.patch.object(module.requests, "get", return_value=upstream) as get:
+        r = client.get("/camera/stream")
+        assert get.call_args.args[0].endswith("/stream.mjpg")
+        assert r.headers["Content-Type"].startswith("multipart/x-mixed-replace")
+        assert r.get_data() == b"--FRAME\r\njpeg"
+        r.close()
+    assert upstream.close.called
+    # Every slot is free again: the limit's worth of views can open at once.
+    opened = []
+    with mock.patch.object(module.requests, "get", return_value=upstream):
+        for _ in range(module.STREAM_VIEWER_LIMIT):
+            opened.append(client.get("/camera/stream"))
+            assert opened[-1].status_code == 200
+        assert client.get("/camera/stream").status_code == 503  # one too many
+    for resp in opened:
+        resp.close()
+
+
+def test_camera_stream_unavailable_without_service(web):
+    module, client, root = web
+    with mock.patch.object(module.requests, "get", side_effect=module.requests.ConnectionError("refused")):
+        r = client.get("/camera/stream")
+    assert r.status_code == 503 and "Camera service unavailable" in r.get_data(as_text=True)
+    assert module.stream_slots.acquire(blocking=False)  # the failed attempt gave its slot back
+    module.stream_slots.release()
+
+
+def test_scanned_image_version_changes_only_with_the_image(web):
+    module, client, root = web
+    assert client.get("/get_move_count").get_json()["card_scanned_version"] == 0  # no scan yet
+    scanned = root / "static" / "images" / "card_scanned.png"
+    scanned.write_bytes(b"one")
+    os.utime(scanned, ns=(1_000_000_000, 1_000_000_000))
+    first = client.get("/get_move_count").get_json()["card_scanned_version"]
+    assert first == client.get("/get_move_count").get_json()["card_scanned_version"]
+    os.utime(scanned, ns=(2_000_000_000, 2_000_000_000))
+    assert client.get("/get_move_count").get_json()["card_scanned_version"] != first

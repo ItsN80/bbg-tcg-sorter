@@ -140,6 +140,64 @@
             margin: 0 auto;
             border-radius: 8px;
         }
+        [hidden] { display: none !important; }
+
+        /* Camera panel: live view / last scan */
+        .scan-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .scan-head .card-label { margin-bottom: 0; }
+        .view-toggle { display: flex; gap: 4px; }
+        .pill.view-pill {
+            padding: 4px 12px;
+            font-size: 0.75rem;
+        }
+        .pill.view-pill.active {
+            background: var(--ink);
+            color: #fff;
+        }
+        /* Shows the same area as the stills: Read-Card.py keeps the middle 50%
+           of the frame's width and 70% of its height, then rotates it 90°
+           anticlockwise (756x960). The img box is sized so that area exactly
+           fills the frame after the rotation; the rest is clipped. */
+        .live-frame {
+            position: relative;
+            container-type: size;
+            height: min(70vh, 750px);
+            aspect-ratio: 756 / 960;
+            max-width: 100%;
+            margin: 0 auto;
+            background: #1d252c;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .live-frame img {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 200cqh;        /* frame width: the kept 50% spans the frame's height */
+            height: 142.857cqw;   /* frame height: the kept 70% spans the frame's width */
+            max-width: none;
+            object-fit: cover;
+            border-radius: 0;
+            transform: translate(-50%, -50%) rotate(-90deg);
+        }
+        .live-msg {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 12px;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #cfd6dc;
+        }
 
         /* Credits */
         .credits-tile {
@@ -498,8 +556,18 @@
             <div class="panel active" id="panel-live">
                 <div class="live-col">
                     <div class="card image-box">
-                        <h3 class="card-label">Card Scanned</h3>
-                        <img id="cardScanned" src="/static/images/card_scanned.png" alt="Scanned Card Image">
+                        <div class="scan-head">
+                            <h3 class="card-label" id="scanLabel">Live Camera</h3>
+                            <div class="view-toggle" id="scanViewToggle">
+                                <button type="button" class="pill view-pill active" data-view="live">Live</button>
+                                <button type="button" class="pill view-pill" data-view="last">Last Scan</button>
+                            </div>
+                        </div>
+                        <div class="live-frame" id="liveFrame">
+                            <img id="cameraLive" alt="Live camera view">
+                            <p class="live-msg" id="liveMsg">Starting live view…</p>
+                        </div>
+                        <img id="cardScanned" src="/static/images/card_scanned.png" alt="Scanned Card Image" hidden>
                     </div>
                 </div>
 
@@ -610,6 +678,8 @@
 
     <script>
         let paused = false;
+        let shownScannedVersion = null;
+        let shownIdentifiedUrl = null;
 
         function updateCounts() {
             if (paused) return;
@@ -620,10 +690,15 @@
                     document.getElementById("moveCountDisplay").innerText = data.moves;
                     document.getElementById("monthlyCountDisplay").innerText = data.monthly_moves;
                     document.getElementById("failedReadsDisplay").innerText = data.failed_reads;
-                    if (data.card_identified_url) {
-                        document.getElementById("cardIdentified").src = data.card_identified_url + "?t=" + new Date().getTime();
+                    // Images are only re-downloaded when they change.
+                    if (data.card_identified_url && data.card_identified_url !== shownIdentifiedUrl) {
+                        shownIdentifiedUrl = data.card_identified_url;
+                        document.getElementById("cardIdentified").src = data.card_identified_url;
                     }
-                    document.getElementById("cardScanned").src = data.card_scanned_url + "?t=" + new Date().getTime();
+                    if (data.card_scanned_version !== shownScannedVersion) {
+                        shownScannedVersion = data.card_scanned_version;
+                        document.getElementById("cardScanned").src = data.card_scanned_url + "?v=" + data.card_scanned_version;
+                    }
                     const badge = document.getElementById("creditsBadge");
                     if (badge) {
                         if (data.credits !== null && data.credits !== undefined) {
@@ -649,7 +724,70 @@
                 .catch(error => console.error("Error fetching counts:", error));
         }
 
-        setInterval(updateCounts, 2000);
+        setInterval(updateCounts, 1000);
+
+        // Camera panel: live view (relayed from camera_service.py) or the last
+        // scan. The stream only runs while it's on screen, since each open view
+        // holds a server thread and keeps the encoder busy.
+        const liveImg = document.getElementById("cameraLive");
+        const liveMsg = document.getElementById("liveMsg");
+        let scanView = "live";
+        let liveRetry = null;
+        try { scanView = localStorage.getItem("scanView") || "live"; } catch (e) {}
+
+        function liveWanted() {
+            return scanView === "live" && !document.hidden &&
+                document.getElementById("panel-live").classList.contains("active");
+        }
+
+        function stopLive() {
+            liveImg.src = "";
+            liveImg.removeAttribute("src");
+        }
+
+        function syncScanView() {
+            const live = scanView === "live";
+            document.querySelectorAll("#scanViewToggle .view-pill").forEach(function (b) {
+                b.classList.toggle("active", b.getAttribute("data-view") === scanView);
+            });
+            document.getElementById("scanLabel").innerText = live ? "Live Camera" : "Last Scan";
+            document.getElementById("liveFrame").hidden = !live;
+            document.getElementById("cardScanned").hidden = live;
+            if (liveWanted()) {
+                if (!liveImg.getAttribute("src") && !liveRetry) {
+                    liveMsg.innerText = "Starting live view…";
+                    liveMsg.hidden = false;
+                    liveImg.src = "/camera/stream?t=" + Date.now();
+                }
+            } else if (liveImg.getAttribute("src")) {
+                stopLive();
+            }
+        }
+
+        // Browsers don't reliably fire "load" for a never-ending MJPEG stream, so
+        // hide the message once the first frame has been decoded.
+        liveImg.addEventListener("load", function () { liveMsg.hidden = true; });
+        setInterval(function () {
+            if (liveImg.getAttribute("src") && liveImg.naturalWidth) liveMsg.hidden = true;
+        }, 500);
+        liveImg.addEventListener("error", function () {
+            if (!liveImg.getAttribute("src")) return;  // stopped on purpose
+            stopLive();
+            liveMsg.innerText = "Live view unavailable — retrying…";
+            liveMsg.hidden = false;
+            clearTimeout(liveRetry);
+            liveRetry = setTimeout(function () { liveRetry = null; syncScanView(); }, 5000);
+        });
+
+        document.querySelectorAll("#scanViewToggle .view-pill").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                scanView = btn.getAttribute("data-view");
+                try { localStorage.setItem("scanView", scanView); } catch (e) {}
+                syncScanView();
+            });
+        });
+        document.addEventListener("visibilitychange", syncScanView);
+        syncScanView();
 
         // Pause polling on button press
         document.querySelector("form").addEventListener("submit", function(e) {
@@ -669,6 +807,7 @@
                 const target = btn.getAttribute("data-tab");
                 document.getElementById("panel-live").classList.toggle("active", target === "live");
                 document.getElementById("panel-bins").classList.toggle("active", target === "bins");
+                syncScanView();
             });
         });
 

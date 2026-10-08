@@ -165,6 +165,20 @@ sudo systemctl enable --now bbg-led.service
 The Pi's analog audio uses the same PWM hardware, so turn it off: in
 `/boot/firmware/config.txt` change `dtparam=audio=on` to `dtparam=audio=off`, then reboot.
 
+#### Camera service
+
+`camera_service.py` keeps the camera open so the Live Sorting tab can show a live
+view (handy for spotting jams) and each card's photo is taken instantly instead of
+starting the camera from cold. `Read-Card.py` and `Test-Camera.py` get their stills
+from it; if it isn't running they open the camera themselves as before, and the live
+view shows "Live view unavailable".
+
+```bash
+sudo cp systemd/bbg-camera.service /etc/systemd/system/   # edit User= and the paths if your username isn't admin
+sudo systemctl daemon-reload
+sudo systemctl enable --now bbg-camera.service
+```
+
 ### 7. Allow the app to reboot/shutdown/update the Pi (optional but recommended)
 
 The web UI has buttons to reboot, shut down, and self-update the Pi, which need

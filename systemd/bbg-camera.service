@@ -1,0 +1,21 @@
+# Camera service for the BBG TCG sorter: owns the camera so the web UI can
+# show a live view while Read-Card.py / Test-Camera.py take stills through it.
+# Runs as the web app's user (needs the video group, which admin has).
+# Install:
+#   sudo cp systemd/bbg-camera.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now bbg-camera.service
+[Unit]
+Description=BBG card sorter camera (live view + stills)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/bbg-tcg-sorter/
+ExecStart=/usr/bin/python3 /home/admin/bbg-tcg-sorter/camera_service.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

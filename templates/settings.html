@@ -176,11 +176,6 @@
         .accordion-body h3:first-child {
             margin-top: 15px;
         }
-        .flapper-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 15px;
-        }
         .subsection {
             background-color: #f7f9fb;
             border-left: 3px solid #3498db;
@@ -267,6 +262,34 @@
             <div class="accordion-body">
                 <label for="system_name">System Name:</label>
                 <input type="text" id="system_name" name="system_name" value="{{ config.system_name or '' }}">
+            </div>
+        </details>
+
+        <details class="section" id="design"{% if error %} open{% endif %}>
+            <summary>Sorter Design</summary>
+            <div class="accordion-body">
+                <label><input type="radio" name="sorter_design" value="ramp" {{ 'checked' if design.design == 'ramp' else '' }}>
+                    Ramp: 10 bins. Flappers 1&ndash;9 open into bins 1&ndash;9; bin 10 is the catch-all.</label>
+
+                <div class="subsection" id="ramp_settings" style="margin-top: 12px;">
+                    <p style="margin: 0; opacity: 0.8;">Open and close degrees for flappers 1&ndash;9.</p>
+                    <a href="{{ url_for('servo_test_page', design_name='ramp') }}"><button type="button">Calibrate Ramp Flappers</button></a>
+                </div>
+
+                <label><input type="radio" name="sorter_design" value="tower" {{ 'checked' if design.design == 'tower' else '' }}>
+                    Tower: flapper 1 is the top level. Each level's flapper tips left or right into that level's two bins; with every flapper centered the card drops into the catch-all, the last bin.</label>
+
+                <div class="subsection" id="tower_settings" style="margin-top: 12px;">
+                    <label for="tower_levels" style="margin-top: 0;">Tower Levels (1&ndash;{{ max_tower_levels }}):</label>
+                    <input type="number" id="tower_levels" name="tower_levels" min="1" max="{{ max_tower_levels }}" step="1"
+                        value="{{ design.tower_levels }}" style="width: 100px; padding: 8px; margin-top: 5px;">
+                    <p id="tower_bins_text" style="margin: 8px 0 0; opacity: 0.8;"></p>
+                    <a href="{{ url_for('servo_test_page', design_name='tower') }}"><button type="button">Calibrate Tower Flappers</button></a>
+                </div>
+                <p style="margin-top: 10px; opacity: 0.8;">
+                    Failed reads and cards that match no bin go to the catch-all. Bin criteria are kept for every bin,
+                    so lowering the level count or switching design only hides bins; it doesn't clear them.
+                </p>
             </div>
         </details>
 
@@ -391,25 +414,9 @@
         </details>
 
         <details class="section"{% if error %} open{% endif %}>
-            <summary>Servos &amp; Flappers</summary>
+            <summary>Card Servo</summary>
             <div class="accordion-body">
-                <h3>Flapper Settings</h3>
-                <div class="flapper-grid">
-                {% for flapper, settings in config.flappers.items() %}
-                <div class="subsection">
-                    <h3>{{ flapper|replace('_', ' ')|title }}</h3>
-                    <label for="{{ flapper }}_open_degrees">Open:</label>
-                    <input type="text" id="{{ flapper }}_open_degrees" name="{{ flapper }}_open_degrees" value="{{ settings.open_degrees or '' }}">
-
-                    <label for="{{ flapper }}_close_degrees">Close:</label>
-                    <input type="text" id="{{ flapper }}_close_degrees" name="{{ flapper }}_close_degrees" value="{{ settings.close_degrees or '' }}">
-
-                    <button type="button" onclick="testFlapper('{{ flapper }}')">Test</button>
-                </div>
-                {% endfor %}
-                </div>
-
-                <h3>Card Servo Settings</h3>
+                <p style="margin-top: 15px; opacity: 0.8;">Flapper degrees are set under Sorter Design &rarr; Calibrate Ramp / Tower Flappers.</p>
                 <label for="card_servo_open_degrees">Open Degrees:</label>
                 <input type="text" id="card_servo_open_degrees" name="card_servo_open_degrees" value="{{ config.card_servo.open_degrees or '' }}">
 
@@ -592,6 +599,27 @@
             });
         });
 
+        // Sorter Design: levels only matter for the tower; show its bin count.
+        (function () {
+            const levels = document.getElementById("tower_levels");
+            const towerSettings = document.getElementById("tower_settings");
+            const rampSettings = document.getElementById("ramp_settings");
+            const binsText = document.getElementById("tower_bins_text");
+            function update() {
+                const tower = document.querySelector('input[name="sorter_design"]:checked').value === "tower";
+                towerSettings.style.display = tower ? "" : "none";
+                rampSettings.style.display = tower ? "none" : "";
+                const n = parseInt(levels.value, 10);
+                binsText.textContent = (n >= 1 && n <= {{ max_tower_levels }})
+                    ? (2 * n + 1) + " bins: " + (2 * n) + " level bins (1–" + (2 * n) + ") + catch-all bin " + (2 * n + 1) + "."
+                    : "Enter 1–{{ max_tower_levels }} levels.";
+            }
+            document.querySelectorAll('input[name="sorter_design"]').forEach(r => r.addEventListener("change", update));
+            levels.addEventListener("input", update);
+            update();
+            if (window.location.hash === "#design") document.getElementById("design").open = true;
+        })();
+
         function runScript(scriptName, args) {
             let url = `/run_script?script=${encodeURIComponent(scriptName)}`;
             if (args) url += `&args=${encodeURIComponent(args)}`;
@@ -599,11 +627,6 @@
                 .then(response => response.text())
                 .then(data => console.log(`Script ${scriptName} executed:`, data))
                 .catch(error => console.error(`Error running ${scriptName}:`, error));
-        }
-
-        function testFlapper(flapperName) {
-            runScript('servo_controller.py', `${flapperName} open`);
-            setTimeout(() => runScript('servo_controller.py', `${flapperName} close`), 2000);
         }
 
         function testCardServo() {

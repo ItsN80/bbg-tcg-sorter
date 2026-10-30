@@ -422,6 +422,10 @@
             font-size: 0.9rem;
             color: var(--ink);
         }
+        .bin-list-where {
+            font-weight: 400;
+            color: var(--muted);
+        }
         .bin-list-summary {
             font-size: 0.75rem;
             color: var(--muted);
@@ -622,8 +626,8 @@
                             <button type="submit" name="clear_bin_counts" class="btn btn-tertiary">Clear Bin Counts</button>
                         </div>
                         <div class="bin-count-grid">
-                            {% for i in range(1, 11) %}
-                            <div class="bin-count-tile">
+                            {% for i in range(1, bin_count + 1) %}
+                            <div class="bin-count-tile"{% if bin_labels[i] %} title="{{ bin_labels[i] }}"{% endif %}>
                                 <span class="stat-label">Bin {{ i }}</span>
                                 <span class="stat-value" id="binCount{{ i }}">{{ bin_counts.get(i, 0) }}</span>
                             </div>
@@ -653,20 +657,21 @@
                     <button type="submit" name="reset_bins" class="btn btn-secondary">Reset Bins to Default</button>
                     <span class="bin-save-status" id="binSaveStatus">All changes saved</span>
                 </div>
-                <p class="bin-setup-hint">Customize each card box below — changes save automatically.</p>
+                <p class="bin-setup-hint">Customize each card box below — changes save automatically.
+                    Sorter: {{ design_summary }} (<a href="{{ url_for('settings') }}#design">change</a>). Cards no bin matches, and failed reads, go to the catch-all bin.</p>
                 <div class="bin-editor">
                     <div class="bin-list" id="binList">
-                        {% for i in range(1, 11) %}
+                        {% for i in range(1, bin_count + 1) %}
                         <button type="button" class="bin-list-item {{ 'active' if i == 1 else '' }}" data-bin="{{ i }}">
-                            <span class="bin-list-title">Card Bin {{ i }}</span>
+                            <span class="bin-list-title">Card Bin {{ i }}{% if bin_labels[i] %} <span class="bin-list-where">· {{ bin_labels[i] }}</span>{% endif %}</span>
                             <span class="bin-list-summary">{{ bin_summaries.get(i) or 'No criteria set' }}</span>
                         </button>
                         {% endfor %}
                     </div>
                     <div class="bin-detail card">
-                        {% for i in range(1, 11) %}
+                        {% for i in range(1, bin_count + 1) %}
                         <div class="bin-fields {{ 'active' if i == 1 else '' }}" data-bin-fields="{{ i }}">
-                            <h3>Card Bin {{ i }}</h3>
+                            <h3>Card Bin {{ i }}{% if bin_labels[i] %} · {{ bin_labels[i] }}{% endif %}</h3>
                             {% include 'card_form.html' %}
                         </div>
                         {% endfor %}
@@ -715,7 +720,7 @@
                     const collectorEl = document.getElementById("identifiedCardCollector");
                     if (collectorEl) collectorEl.innerText = data.card_identified_collector_number || "--";
                     if (data.bin_counts) {
-                        for (let i = 1; i <= 10; i++) {
+                        for (let i = 1; i <= {{ bin_count }}; i++) {
                             const binEl = document.getElementById("binCount" + i);
                             if (binEl) binEl.innerText = data.bin_counts[i] ?? 0;
                         }
@@ -837,7 +842,7 @@
             if (binsPill) binsPill.click();
         }
 
-        // Bin list — selecting a bin shows its fields; all 10 field sets stay in the DOM.
+        // Bin list — selecting a bin shows its fields; every bin's field set stays in the DOM.
         document.querySelectorAll("#binList .bin-list-item").forEach(function (item) {
             item.addEventListener("click", function () {
                 const bin = item.getAttribute("data-bin");

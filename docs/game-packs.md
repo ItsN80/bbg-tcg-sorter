@@ -74,7 +74,8 @@ out everything after `//` in a real file.
 Each filter is one input on the Bin Settings page. The value a user enters for a
 bin is saved under the filter's `key`. When a card is scanned, it goes to the
 first bin where **every** filter that has a value matches. A bin with no
-filters set never matches, so unmatched cards end up in bin 10.
+filters set never matches, so unmatched cards end up in the catch-all: bin 10 on
+the ramp, or the last bin on a tower.
 
 | Field | Required | Meaning |
 |---|---|---|
@@ -240,7 +241,7 @@ pack much smaller.
 ## default-bins.json (optional)
 
 Starter bin filters, used when the game has no saved bin settings yet. Keys are
-bin numbers 1-10 and values map filter keys to values: strings for
+bin numbers 1-31 (a ramp uses 1-10; a 15-level tower uses all 31) and values map filter keys to values: strings for
 `text`/`number`/`name_range` filters, and lists of option values for `multi`
 filters. Anything that doesn't match a filter or option is ignored.
 

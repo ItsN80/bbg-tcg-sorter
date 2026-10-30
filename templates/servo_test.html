@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Calibrate {{ page_design|title }} Flappers</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --left-colour: #3498db;
+            --center-colour: #2ecc71;
+            --right-colour: #e67e22;
+            --open-colour: #e67e22;
+            --close-colour: #2ecc71;
+            --error-colour: #c0392b;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 12px 16px;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+            margin: 0;
+        }
+        h1 {
+            font-size: 1.6rem;
+        }
+        h2 {
+            font-size: 1.15rem;
+        }
+        .hint {
+            color: #666;
+            font-size: 0.85em;
+            font-weight: 400;
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .topbar h1 {
+            margin-right: auto;
+        }
+        .panel {
+            background-color: #fff;
+            padding: 12px 14px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 10px 18px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font: inherit;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            opacity: 0.55;
+            cursor: wait;
+        }
+        button.secondary {
+            background-color: #7f8c8d;
+        }
+        button.secondary:hover {
+            background-color: #6c7a7b;
+        }
+        .card-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .card-actions button {
+            font-size: 1.05rem;
+            padding: 12px 26px;
+        }
+        .card-actions .hint {
+            line-height: 1.4;
+        }
+        #cardStatus {
+            margin-left: auto;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        .deposit {
+            margin-bottom: 12px;
+        }
+        .deposit-head {
+            display: flex;
+            align-items: baseline;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .deposit-head label {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.95rem;
+            white-space: nowrap;
+        }
+        .bin-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .bin-buttons button {
+            padding: 6px 12px;
+            min-width: 64px;
+            line-height: 1.15;
+            background-color: var(--swatch);
+        }
+        .bin-buttons button:hover {
+            filter: brightness(0.92);
+        }
+        .bin-buttons button small {
+            display: block;
+            font-size: 0.72rem;
+        }
+        .notice {
+            margin: 0 0 12px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: #fdf2d0;
+        }
+        /* Up to 15 levels: four panels a row on a 1080p screen */
+        .flappers {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .flapper-body {
+            display: grid;
+            grid-template-columns: 96px minmax(0, 1fr);
+            gap: 8px;
+            align-items: center;
+        }
+        .flapper-head {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+        .badge {
+            margin-left: auto;
+            font-size: 0.85rem;
+            padding: 3px 10px;
+            border-radius: 999px;
+            background: #ecf0f1;
+            color: #555;
+            white-space: nowrap;
+        }
+        .badge.ok {
+            background: color-mix(in srgb, var(--swatch, #2ecc71) 18%, white);
+            color: #2c3e50;
+        }
+        .badge.busy {
+            background: #fdf2d0;
+        }
+        .badge.error {
+            background: #fadbd8;
+            color: var(--error-colour);
+        }
+        .dial {
+            display: block;
+            width: 96px;
+            height: 60px;
+        }
+        .dial .track {
+            fill: none;
+            stroke: #dcdcdc;
+            stroke-width: 2;
+        }
+        .dial .arm {
+            stroke-linecap: round;
+            stroke-width: 5;
+            stroke-dasharray: 10 8;
+            opacity: 0.55;
+        }
+        .dial .arm.active {
+            stroke-width: 14;
+            stroke-dasharray: none;
+            opacity: 1;
+        }
+        .pos-row {
+            display: grid;
+            grid-template-columns: 78px auto auto minmax(48px, 1fr) auto auto;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 6px;
+            margin-top: 5px;
+            border-radius: 8px;
+            border: 1px solid #dcdcdc;
+            border-left: 6px solid var(--swatch);
+        }
+        .pos-row.active {
+            background: color-mix(in srgb, var(--swatch) 12%, white);
+            border-color: var(--swatch);
+        }
+        .pos-row .move {
+            background-color: var(--swatch);
+            font-weight: 700;
+            padding: 4px 6px;
+            line-height: 1.15;
+        }
+        .pos-row .move small {
+            display: block;
+            font-weight: 400;
+            font-size: 0.72rem;
+        }
+        .pos-row .move:hover {
+            filter: brightness(0.92);
+        }
+        .pos-row .nudge {
+            padding: 7px 0;
+            min-width: 34px;
+            background-color: #ecf0f1;
+            color: #2c3e50;
+        }
+        .pos-row .nudge:hover {
+            background-color: #dde3e6;
+        }
+        .degrees {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .degrees input {
+            width: 100%;
+            min-width: 0;
+            padding: 6px 2px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            font: inherit;
+            font-size: 1rem;
+            text-align: center;
+        }
+        .degrees input.unsaved {
+            border-color: #f1c40f;
+            background: #fffbea;
+        }
+        .log {
+            margin: 6px 0 0;
+            padding: 0;
+            list-style: none;
+            font-family: ui-monospace, Consolas, monospace;
+            font-size: 0.85rem;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .log li {
+            padding: 2px 0;
+            border-bottom: 1px solid #f0f0f0;
+            white-space: pre-wrap;
+        }
+        .log li.error {
+            color: var(--error-colour);
+        }
+        .log .time {
+            color: #999;
+        }
+        @media (max-width: 480px) {
+            .flappers {
+                grid-template-columns: 1fr;
+            }
+            .flapper-body {
+                grid-template-columns: 1fr;
+            }
+            .dial {
+                margin: 0 auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1>Calibrate {{ page_design|title }} Flappers
+            <span class="hint">{% if page_design == 'tower' %}{{ design.tower_levels }} level{{ 's' if design.tower_levels != 1 else '' }} · flapper 1 is the top{% else %}flappers 1–9 · bin 10 is the catch-all{% endif %}</span></h1>
+        <a href="{{ url_for('sensors_page') }}"><button type="button" class="secondary">Sensor Status</button></a>
+        <a href="{{ url_for('settings') }}#design"><button type="button" class="secondary">Back to Settings</button></a>
+    </div>
+
+    <div class="panel card-actions">
+        <button type="button" id="feedBtn">Feed Card</button>
+        <button type="button" id="releaseBtn">Release Card</button>
+        <button type="button" id="restAllBtn" class="secondary">{{ rest_position|title }} All</button>
+        <span class="hint"><strong>Feed Card</strong> stages a card at the release point.
+            <strong>Release Card</strong> only opens and closes the card servo; the flappers stay where you set them.<br>
+            <strong>{{ rest_position|title }} All</strong> only moves every flapper to its saved {{ rest_position }} position; no card moves.</span>
+        <span id="cardStatus"></span>
+    </div>
+
+    <div class="panel deposit">
+        <div class="deposit-head">
+            <h2>Test Deposit</h2>
+            <span class="hint">Runs the sorting cycle into one bin: every flapper to {{ rest_position }}, feed, then the same
+                {% if page_design == 'tower' %}tip, release, push from the level above and re-center{% else %}open, release and close{% endif %} sequence sorting uses.</span>
+            <label><input type="checkbox" id="feedFirst" checked> Feed a card first</label>
+        </div>
+        <div class="bin-buttons">
+            {% for b in deposit_bins %}
+            <button type="button" data-bin="{{ b.num }}"
+                    style="--swatch: {{ '#7f8c8d' if b.kind == 'catch-all' else 'var(--%s-colour)' % b.kind }}">Bin {{ b.num }}{% if b.label %}<small>{{ b.label }}</small>{% endif %}</button>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if design.design != page_design %}
+    <p class="notice">The sorter is set to <strong>{{ design.design|title }}</strong>. These {{ page_design }} positions are used once you choose {{ page_design|title }} in
+        <a href="{{ url_for('settings') }}#design">Settings → Sorter Design</a>{% if page_design == 'tower' %}, where the number of levels is set too{% endif %}.</p>
+    {% endif %}
+
+    <div class="flappers" data-design="{{ page_design }}" data-rest="{{ rest_position }}">
+        {% for panel in panels %}
+        <div class="panel flapper" data-servo="{{ panel.key }}">
+            <div class="flapper-head">
+                <h2>{{ panel.title }}</h2>
+                <span class="hint">{{ panel.hint }}</span>
+                <span class="badge">Not moved yet</span>
+            </div>
+            <div class="flapper-body">
+                <svg class="dial" viewBox="-115 -110 230 120" aria-hidden="true">
+                    <path class="track" d="M -100 0 A 100 100 0 0 1 100 0"></path>
+                    {% for p in panel.positions %}
+                    <line class="arm" data-position="{{ p.id }}" x1="0" y1="0" x2="0" y2="-100"
+                          style="stroke: var(--{{ p.id }}-colour)"></line>
+                    {% endfor %}
+                    <circle cx="0" cy="0" r="12" fill="#2c3e50"></circle>
+                </svg>
+                <div>
+                    {% for p in panel.positions %}
+                    <div class="pos-row" data-position="{{ p.id }}" style="--swatch: var(--{{ p.id }}-colour)">
+                        <button type="button" class="move">{{ p.id|title }}<small>{{ p.sub }}</small></button>
+                        <button type="button" class="nudge" data-step="-5">−5</button>
+                        <button type="button" class="nudge" data-step="-1">−1</button>
+                        <label class="degrees">
+                            <input type="number" min="0" max="180" step="1" value="{{ p.degrees }}"
+                                   data-saved="{{ p.degrees }}" aria-label="{{ panel.title }} {{ p.id }} degrees">°
+                        </label>
+                        <button type="button" class="nudge" data-step="1">+1</button>
+                        <button type="button" class="nudge" data-step="5">+5</button>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="panel">
+        <h2>Activity <span class="hint">Every move saves that position's degrees. Nudging the position a flapper is at moves it straight away; typed values move on Enter.</span></h2>
+        <ul class="log" id="log"></ul>
+    </div>
+
+    <script>
+        (function () {
+            const grid = document.querySelector(".flappers");
+            const DESIGN = grid.dataset.design;
+            const REST = grid.dataset.rest;     // where flappers sit between cards
+            function label(position) {
+                return position.charAt(0).toUpperCase() + position.slice(1);
+            }
+
+            function log(message, isError) {
+                const li = document.createElement("li");
+                if (isError) li.className = "error";
+                const time = document.createElement("span");
+                time.className = "time";
+                time.textContent = new Date().toLocaleTimeString() + "  ";
+                li.append(time, message);
+                const list = document.getElementById("log");
+                list.prepend(li);
+                while (list.children.length > 50) list.lastChild.remove();
+            }
+
+            async function post(url, body) {
+                const r = await fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body || {}),
+                });
+                let data;
+                try {
+                    data = await r.json();
+                } catch (e) {
+                    throw new Error("Unexpected response (HTTP " + r.status + ") — are you still logged in?");
+                }
+                if (!r.ok || !data.success) {
+                    const err = new Error(data.error || "HTTP " + r.status);
+                    err.output = data.output;
+                    throw err;
+                }
+                return data;
+            }
+
+            // --- Card feed / release -------------------------------------
+            const cardStatus = document.getElementById("cardStatus");
+
+            const onRest = [];  // each flapper panel's "now at its saved rest position" update
+            const restAll = () => onRest.forEach(fn => fn());
+
+            function cardAction(button, url, busyText, doneText, onSuccess) {
+                button.addEventListener("click", async function () {
+                    const original = button.textContent;
+                    button.disabled = true;
+                    button.textContent = busyText;
+                    cardStatus.textContent = busyText;
+                    try {
+                        await post(url);
+                        cardStatus.textContent = doneText;
+                        log(doneText);
+                        if (onSuccess) onSuccess();
+                    } catch (e) {
+                        cardStatus.textContent = original + " failed: " + e.message;
+                        log(original + " failed: " + e.message + (e.output ? "\n" + e.output.trim() : ""), true);
+                    } finally {
+                        button.disabled = false;
+                        button.textContent = original;
+                    }
+                });
+            }
+
+            cardAction(document.getElementById("feedBtn"), "/api/servo_test/feed", "Feeding…", "Card fed.");
+            cardAction(document.getElementById("releaseBtn"), "/api/servo_test/release", "Releasing…", "Card released.");
+            cardAction(document.getElementById("restAllBtn"), "/api/servo_test/" + DESIGN + "/rest", "Moving…",
+                       "All flappers moved to " + REST + ".", restAll);
+
+            // --- Test deposit --------------------------------------------
+            const binButtons = document.querySelectorAll(".bin-buttons button");
+            binButtons.forEach(function (button) {
+                button.addEventListener("click", async function () {
+                    const bin = button.dataset.bin;
+                    const feed = document.getElementById("feedFirst").checked;
+                    const what = "Deposit into bin " + bin + (feed ? " (with feed)" : "");
+                    binButtons.forEach(b => b.disabled = true);
+                    cardStatus.textContent = what + "…";
+                    try {
+                        await post("/api/servo_test/" + DESIGN + "/deposit", { bin: Number(bin), feed: feed });
+                        cardStatus.textContent = "Deposited into bin " + bin + ".";
+                        log(what + " done.");
+                        restAll();  // the cycle ends with every flapper back at rest
+                    } catch (e) {
+                        cardStatus.textContent = what + " failed: " + e.message;
+                        log(what + " failed: " + e.message + (e.output ? "\n" + e.output.trim() : ""), true);
+                    } finally {
+                        binButtons.forEach(b => b.disabled = false);
+                    }
+                });
+            });
+
+            // --- Flappers ------------------------------------------------
+            document.querySelectorAll(".flapper").forEach(function (panel) {
+                const servo = panel.dataset.servo;
+                const name = panel.querySelector("h2").textContent;
+                const badge = panel.querySelector(".badge");
+                let active = null;      // position the flapper was last moved to
+                let pending = null;     // move waiting for the one in flight
+                let busy = false;
+                let nudgeTimer = null;
+
+                function row(position) {
+                    return panel.querySelector('.pos-row[data-position="' + position + '"]');
+                }
+                function input(position) {
+                    return row(position).querySelector("input");
+                }
+
+                // 0° at the left end of the arc, 180° at the right end.
+                const positions = Array.from(panel.querySelectorAll(".pos-row"), r => r.dataset.position);
+
+                function drawDial() {
+                    positions.forEach(function (p) {
+                        const deg = Math.max(0, Math.min(180, parseInt(input(p).value, 10) || 0));
+                        const rad = Math.PI - deg * Math.PI / 180;
+                        const arm = panel.querySelector('.arm[data-position="' + p + '"]');
+                        arm.setAttribute("x2", (Math.cos(rad) * 100).toFixed(1));
+                        arm.setAttribute("y2", (-Math.sin(rad) * 100).toFixed(1));
+                        arm.classList.toggle("active", p === active);
+                        input(p).classList.toggle("unsaved", input(p).value !== input(p).dataset.saved);
+                    });
+                    panel.querySelectorAll(".pos-row").forEach(function (r) {
+                        r.classList.toggle("active", r.dataset.position === active);
+                    });
+                }
+
+                function setBadge(text, kind, position) {
+                    badge.textContent = text;
+                    badge.className = "badge" + (kind ? " " + kind : "");
+                    badge.style.setProperty("--swatch", position ? "var(--" + position + "-colour)" : "");
+                }
+
+                function move(position) {
+                    const deg = parseInt(input(position).value, 10);
+                    if (isNaN(deg) || deg < 0 || deg > 180) {
+                        setBadge("0–180° only", "error");
+                        log(name + ": " + label(position) + " must be 0–180°", true);
+                        return;
+                    }
+                    pending = { position: position, degrees: deg };
+                    if (!busy) drain();
+                }
+
+                async function drain() {
+                    busy = true;
+                    while (pending) {
+                        const { position, degrees } = pending;
+                        pending = null;
+                        setBadge("Moving to " + label(position) + "…", "busy");
+                        try {
+                            await post("/api/servo_test/move",
+                                       { design: DESIGN, servo: servo, position: position, degrees: degrees });
+                            active = position;
+                            input(position).dataset.saved = String(degrees);
+                            setBadge(label(position) + " · " + degrees + "°", "ok", position);
+                            log(name + " → " + label(position) + " (" + degrees + "°)");
+                        } catch (e) {
+                            setBadge("Move failed", "error");
+                            log(name + " → " + label(position) + " failed: " + e.message, true);
+                        }
+                        drawDial();
+                    }
+                    busy = false;
+                }
+
+                panel.querySelectorAll(".pos-row").forEach(function (r) {
+                    const position = r.dataset.position;
+                    const field = r.querySelector("input");
+                    r.querySelector(".move").addEventListener("click", function () { move(position); });
+                    r.querySelectorAll(".nudge").forEach(function (b) {
+                        b.addEventListener("click", function () {
+                            const current = parseInt(field.value, 10) || 0;
+                            field.value = Math.max(0, Math.min(180, current + parseInt(b.dataset.step, 10)));
+                            drawDial();
+                            // Live-adjust the position the flapper is sitting at;
+                            // a short delay lets quick clicks add up to one move.
+                            if (position === active) {
+                                clearTimeout(nudgeTimer);
+                                nudgeTimer = setTimeout(function () { move(position); }, 300);
+                            }
+                        });
+                    });
+                    field.addEventListener("input", drawDial);
+                    field.addEventListener("keydown", function (e) {
+                        if (e.key === "Enter") move(position);
+                    });
+                });
+
+                // Close All / Center All moves to the saved rest degrees.
+                onRest.push(function () {
+                    active = REST;
+                    setBadge(label(REST) + " · " + input(REST).dataset.saved + "°", "ok", REST);
+                    drawDial();
+                });
+
+                drawDial();
+            });
+        })();
+    </script>
+</body>
+</html>

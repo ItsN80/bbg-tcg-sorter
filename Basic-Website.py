@@ -22,13 +22,14 @@ from led_controller import LEDController, normalize_led_config
 import camera_client
 import games
 import game_packs
+import sorter_design
 
 app = Flask(__name__)
 
 # Global variables
 sorting_active = False      # Whether the sorting loop is active
 sorting_thread = None       # Thread running the sorting loop
-box_criteria = {}           # Dictionary mapping box numbers (1-10) to criteria for the active game
+box_criteria = {}           # Dictionary mapping box numbers (1-31) to criteria for the active game
 game_registry = {}          # {game_id: definition} from games.load_games()
 active_game = None          # Definition of the game currently being sorted
 lock = threading.Lock()       # Protects sorting_active, box_criteria, game_registry, active_game
@@ -75,7 +76,7 @@ card_identified_name = ""
 card_identified_set = ""
 card_identified_collector_number = ""
 do_credits = None  # Cached remaining_credits from DO Serverless backend
-bin_counts = {i: 0 for i in range(1, 11)}  # In-memory only; resets on restart.
+bin_counts = {i: 0 for i in range(1, sorter_design.MAX_BIN_COUNT + 1)}  # In-memory only; resets on restart.
 
 # Initialize pigpio globally
 pi = pigpio.pi()
@@ -170,6 +171,11 @@ def write_config(config):
     except Exception as e:
         print("Error writing config file:", e)
         return False
+
+
+def read_design(config=None):
+    """The sorter's physical design (ramp or tower) from config["sorter"]."""
+    return sorter_design.normalize((config if config is not None else read_config()).get("sorter"))
 
 
 def fetch_do_balance():
@@ -315,7 +321,7 @@ def read_bin_info(game):
 def write_bin_info(game, criteria):
     try:
         normalized = games.normalize_box_criteria(game, criteria)
-        serialized = {str(i): normalized.get(i, {}) for i in range(1, games.BIN_COUNT + 1)}
+        serialized = {str(i): normalized.get(i, {}) for i in range(1, sorter_design.MAX_BIN_COUNT + 1)}
         with open(bin_info_path(game["id"]), "w", encoding="utf-8") as f:
             json.dump(serialized, f, indent=4)
         return True
@@ -484,6 +490,27 @@ def send_shutdown_summary_email(config):
             except Exception as e:
                 print("Failed to send shutdown summary email:", e)
 
+SERVO_CTRL = ["python3", os.path.join(BASE_DIR, "scripts", "servo_controller.py")]
+CARD_RELEASE_HOLD_SEC = 2  # how long the card servo stays open for a card to drop
+
+def deliver_card(design, selected_box):
+    """Sends the card waiting at the card servo into selected_box: moves that
+    bin's flapper (none for the catch-all), opens the card servo, waits, tips
+    the level above the same way to push a tower card through, then puts
+    everything back (ramp flappers close, tower flappers re-center)."""
+    route = sorter_design.route(design, selected_box)
+    if route:
+        subprocess.run(SERVO_CTRL + [route.flapper, route.action], check=True, timeout=10)
+    subprocess.run(SERVO_CTRL + ["card_servo", "open"], check=True, timeout=10)
+    time.sleep(CARD_RELEASE_HOLD_SEC)
+    if route:
+        moved = [route.flapper]
+        if route.push_flapper:
+            subprocess.run(SERVO_CTRL + [route.push_flapper, route.action], check=True, timeout=10)
+            moved.append(route.push_flapper)
+        subprocess.run(SERVO_CTRL + [",".join(moved), route.return_action], check=True, timeout=10)
+    subprocess.run(SERVO_CTRL + ["card_servo", "close"], check=True, timeout=10)
+
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count, do_credits
     global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts
@@ -493,6 +520,18 @@ def sorting_loop():
     # One game per run: snapshot it so a mid-run change can't mix rule sets.
     with lock:
         _game = active_game
+    _design = read_design(_live_config)
+    _bins = sorter_design.bin_count(_design)
+    _catch_all = sorter_design.catch_all_bin(_design)
+    if _design["design"] == sorter_design.TOWER:
+        # Every level must start centered or a card could drop out early.
+        try:
+            subprocess.run(SERVO_CTRL + [",".join(sorter_design.tower_flappers(_design)), "center"],
+                           check=True, timeout=10)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            print(f"Could not center the tower flappers, stopping sorting: {e}")
+            sorting_active = False
+            return
     _is_do = _live_config.get("recognition_provider") == "do_serverless"
     if _is_do:
         _bal = fetch_do_balance()
@@ -513,21 +552,17 @@ def sorting_loop():
                     sorting_active = False
                     break
 
-            servo_ctrl = ["python3", os.path.join(BASE_DIR, "scripts", "servo_controller.py")]
-
             if not sorting_active:
                 # Stop was requested while this card was being physically fed. It's
                 # already in the machine, so skip the slow OCR/Scryfall read and just
-                # release it to the failsafe tray instead of running a full cycle.
-                print("Stop requested during feed. Releasing in-flight card to bin 10 without reading.")
-                subprocess.run(servo_ctrl + ["card_servo", "open"], check=True, timeout=10)
-                time.sleep(2)
-                subprocess.run(servo_ctrl + ["card_servo", "close"], check=True, timeout=10)
+                # release it to the catch-all bin instead of running a full cycle.
+                print(f"Stop requested during feed. Releasing in-flight card to bin {_catch_all} without reading.")
+                deliver_card(_design, _catch_all)
                 update_images({})
                 with stats_lock:
                     move_count += 1
                     monthly_move_count += 1
-                    bin_counts[10] += 1
+                    bin_counts[_catch_all] += 1
                 save_move_count(move_count)
                 save_monthly_move_count(monthly_move_count)
                 break
@@ -563,25 +598,25 @@ def sorting_loop():
                     try:
                         card = parse_card_output(read_stdout)
                     except json.JSONDecodeError:
-                        print("Error decoding card info. Using tray 10 as failover.")
+                        print("Error decoding card info. Using the catch-all bin as failover.")
                         card = {
                             "error": "Decoding error from Read-Card.py output",
                             "raw_stdout": read_stdout
                         }
             except subprocess.TimeoutExpired:
-                print("Read-Card.py timed out after 120 seconds, routing to bin 10.")
+                print("Read-Card.py timed out after 120 seconds, routing to the catch-all bin.")
                 read_stderr = "Read-Card.py timed out after 120 seconds"
                 card = {"error": "Read-Card.py timed out", "raw_stderr": read_stderr}
 
              
             if card.get("unsupported_game"):
                 # The provider will reject every card of this game; release this one
-                # to bin 10 and stop instead of failing the whole stack.
+                # to the catch-all bin and stop instead of failing the whole stack.
                 print(f"Stopping sorting: {card['error']}")
                 sorting_active = False
             if "error" in card:
-                print(f"Error in card info: {card['error']}. Using tray 10 as failover.")
-                selected_box = 10
+                print(f"Error in card info: {card['error']}. Using bin {_catch_all} (catch-all) as failover.")
+                selected_box = _catch_all
                 with stats_lock:
                     failed_read_count += 1
                 save_failed_read_count(failed_read_count)
@@ -636,7 +671,7 @@ def sorting_loop():
                 # Determine the correct box.
                 selected_box = None
                 with lock:
-                    for i in range(1, 11):
+                    for i in range(1, _bins + 1):
                         crit = box_criteria.get(i, {})
                         match = games.matches_criteria(_game, card, crit)
                         print(f"Checking Box {i} with criteria {crit}: match = {match}")
@@ -644,23 +679,12 @@ def sorting_loop():
                             selected_box = i
                             break
                 if selected_box is None:
-                    selected_box = 10
+                    selected_box = _catch_all
             
             print(f"Selected Box: {selected_box} for card: {card}")
 
             # Process the card.
-            if selected_box == 10:
-                subprocess.run(servo_ctrl + ["card_servo", "open"], check=True, timeout=10)
-                time.sleep(2)
-                subprocess.run(servo_ctrl + ["card_servo", "close"], check=True, timeout=10)
-            else:
-                flapper_key = f"flapper_{selected_box}"
-                subprocess.run(servo_ctrl + [flapper_key, "open"], check=True, timeout=10)
-                subprocess.run(servo_ctrl + ["card_servo", "open"], check=True, timeout=10)
-                time.sleep(2)
-                subprocess.run(servo_ctrl + [flapper_key, "close"], check=True, timeout=10)
-                subprocess.run(servo_ctrl + ["card_servo", "close"], check=True, timeout=10)
-                
+            deliver_card(_design, selected_box)
             
             # Update the scanned image.
             update_images(card)
@@ -816,7 +840,7 @@ def index():
 
         elif "clear_bin_counts" in request.form:
             with stats_lock:
-                bin_counts = {i: 0 for i in range(1, 11)}
+                bin_counts = {i: 0 for i in range(1, sorter_design.MAX_BIN_COUNT + 1)}
             print("Bin counters reset to 0.")
 
 
@@ -836,6 +860,8 @@ def index():
         _game = active_game
         _games = list(game_registry.values())
     _live_config = read_config()
+    _design = read_design(_live_config)
+    _bin_count = sorter_design.bin_count(_design)
     return render_template(
         "index.html",
         game=_game,
@@ -857,6 +883,9 @@ def index():
         card_identified_set=_card_set,
         card_identified_collector_number=_card_collector,
         bin_counts=_bin_counts,
+        bin_count=_bin_count,
+        bin_labels={i: sorter_design.bin_label(_design, i) for i in range(1, _bin_count + 1)},
+        design_summary=sorter_design.describe(_design),
     )
 
 @app.route("/get_move_count", methods=["GET"])
@@ -898,7 +927,7 @@ def update_bin_criteria():
         bin_index = int(request.form.get("bin_index", ""))
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "invalid bin_index"}), 400
-    if bin_index < 1 or bin_index > 10:
+    if bin_index < 1 or bin_index > sorter_design.bin_count(read_design()):
         return jsonify({"success": False, "error": "bin_index out of range"}), 400
 
     with lock:
@@ -1127,6 +1156,8 @@ def render_settings(config, error=None, games_message=None):
         game_prompt=games.game_settings(config, _game["id"]).get("prompt")
             or (config.get("ollama", {}).get("prompt", "") if _game["id"] == games.DEFAULT_GAME_ID else ""),
         games_message=games_message,
+        design=read_design(config),
+        max_tower_levels=sorter_design.MAX_TOWER_LEVELS,
     )
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -1198,15 +1229,6 @@ def settings():
             config["smtp"]["from_email"] = request.form.get("smtp_from", "")
             config["smtp"]["to_email"] = request.form.get("smtp_to", "")
             config["smtp"]["enabled"] = True if request.form.get("smtp_enabled") else False
-            for flapper in config.get("flappers", {}):
-                open_field = f"{flapper}_open_degrees"
-                close_field = f"{flapper}_close_degrees"
-                open_val = request.form.get(open_field, "")
-                close_val = request.form.get(close_field, "")
-                if open_val != "":
-                    config["flappers"][flapper]["open_degrees"] = int(open_val)
-                if close_val != "":
-                    config["flappers"][flapper]["close_degrees"] = int(close_val)
             open_val = request.form.get("card_servo_open_degrees", "")
             close_val = request.form.get("card_servo_close_degrees", "")
             if open_val != "":
@@ -1261,6 +1283,22 @@ def settings():
                     error = "Feed Cycle Max Attempts must be a whole number of 1 or more (example: 3)."
                     return render_settings(config, error)
             config["feed"]["debug_logging"] = True if request.form.get("feed_debug_logging") else False
+            if "sorter_design" in request.form:
+                current_design = read_design(config)
+                try:
+                    levels = int(request.form.get("tower_levels") or current_design["tower_levels"])
+                except ValueError:
+                    levels = 0
+                if not 1 <= levels <= sorter_design.MAX_TOWER_LEVELS:
+                    error = f"Tower Levels must be a whole number from 1 to {sorter_design.MAX_TOWER_LEVELS}."
+                    return render_settings(config, error)
+                new_design = sorter_design.normalize({"design": request.form.get("sorter_design"), "tower_levels": levels})
+                with lock:
+                    _sorting = sorting_active
+                if _sorting and new_design != current_design:
+                    error = "Stop sorting before changing the sorter design."
+                    return render_settings(config, error)
+                config["sorter"] = new_design
             if write_config(config):
                 return redirect(url_for("index"))
             else:
@@ -1562,6 +1600,223 @@ def sensor_status():
 @app.route("/sensors", methods=["GET"])
 def sensors_page():
     return render_template("sensors.html")
+
+# ---------------------------------------------------------------------------
+# Flapper calibration (Settings -> Sorter Design): ramp open / close and
+# tower left / center / right degrees, with a test feed and release
+# ---------------------------------------------------------------------------
+CALIBRATION_POSITIONS = {
+    sorter_design.RAMP: ("open", "close"),
+    sorter_design.TOWER: ("left", "center", "right"),
+}
+CALIBRATION_REST = {sorter_design.RAMP: "close", sorter_design.TOWER: "center"}  # where flappers sit between cards
+CALIBRATION_DEFAULT_DEGREES = {"open": 90, "close": 90, "left": 60, "center": 90, "right": 120}
+servo_test_lock = threading.Lock()  # one servo move at a time (each re-initialises the PCA9685)
+feed_test_lock = threading.Lock()   # one test feed at a time
+
+def calibration_flappers(design_name, design):
+    if design_name == sorter_design.TOWER:
+        return sorter_design.tower_flappers(design)
+    return sorter_design.RAMP_FLAPPERS
+
+def calibration_panels(design_name, config):
+    """One panel per flapper for the calibration page. Degrees are saved under
+    flappers.<key>.<position>_degrees, which servo_controller.py reads."""
+    flappers = config.get("flappers", {})
+    panels = []
+    for n, key in enumerate(calibration_flappers(design_name, read_design(config)), start=1):
+        channel = flappers.get(key, {}).get("channel", sorter_design.default_flapper_channel(n))
+        if design_name == sorter_design.TOWER:
+            title, hint = f"Level {n}", f"flapper {n} · channel {channel}"
+            subs = {"left": f"Bin {2 * n - 1}", "center": "pass down", "right": f"Bin {2 * n}"}
+        else:
+            title, hint = f"Flapper {n}", f"channel {channel}"
+            subs = {"open": f"Bin {n}", "close": "pass on"}
+        panels.append({
+            "key": key,
+            "title": title,
+            "hint": hint,
+            "positions": [
+                {"id": p, "sub": subs[p],
+                 "degrees": flappers.get(key, {}).get(f"{p}_degrees", CALIBRATION_DEFAULT_DEGREES[p])}
+                for p in CALIBRATION_POSITIONS[design_name]
+            ],
+        })
+    return panels
+
+def deposit_bins(design_name, config):
+    """The page design's bins, for the Test Deposit buttons."""
+    design = dict(read_design(config), design=design_name)
+    bins = []
+    for n in range(1, sorter_design.bin_count(design) + 1):
+        route = sorter_design.route(design, n)
+        bins.append({"num": n, "label": sorter_design.bin_label(design, n),
+                     "kind": route.action if route else "catch-all"})
+    return bins
+
+def run_servo(servo_key, action):
+    subprocess.run(SERVO_CTRL + [servo_key, action], check=True, capture_output=True, text=True, timeout=10)
+
+def servo_test_refusal():
+    with lock:
+        if sorting_active:
+            return jsonify({"success": False, "error": "Stop sorting before calibrating flappers."}), 409
+    return None
+
+def servo_test_failure(e):
+    if isinstance(e, subprocess.CalledProcessError):
+        detail = ((e.stderr or "") + (e.stdout or "")).strip()[-500:]
+        return jsonify({"success": False, "error": detail or f"exit code {e.returncode}"}), 500
+    return jsonify({"success": False, "error": f"Timed out after {e.timeout:g}s"}), 504
+
+@app.route("/servo_test", methods=["GET"])
+def servo_test():
+    """Calibration page for whichever design the sorter is set to."""
+    return redirect(url_for("servo_test_page", design_name=read_design()["design"]))
+
+@app.route("/servo_test/<design_name>", methods=["GET"])
+def servo_test_page(design_name):
+    if design_name not in CALIBRATION_POSITIONS:
+        return "Unknown sorter design.", 404
+    config = read_config()
+    return render_template(
+        "servo_test.html",
+        page_design=design_name,
+        panels=calibration_panels(design_name, config),
+        design=read_design(config),
+        rest_position=CALIBRATION_REST[design_name],
+        deposit_bins=deposit_bins(design_name, config),
+    )
+
+@app.route("/api/servo_test/move", methods=["POST"])
+def api_servo_test_move():
+    """Saves the degrees for one flapper position and moves the flapper there."""
+    payload = request.get_json(silent=True) or {}
+    design_name = payload.get("design")
+    servo_key = payload.get("servo")
+    position = payload.get("position")
+    if (design_name not in CALIBRATION_POSITIONS
+            or servo_key not in calibration_flappers(design_name, read_design())
+            or position not in CALIBRATION_POSITIONS[design_name]):
+        return jsonify({"success": False, "error": "Unknown servo or position."}), 400
+    try:
+        degrees = int(payload.get("degrees"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Degrees must be a whole number."}), 400
+    if not 0 <= degrees <= 180:
+        return jsonify({"success": False, "error": "Degrees must be between 0 and 180."}), 400
+    refusal = servo_test_refusal()
+    if refusal:
+        return refusal
+
+    if not servo_test_lock.acquire(timeout=15):
+        return jsonify({"success": False, "error": "Servos are busy, try again."}), 409
+    try:
+        config = read_config()
+        config.setdefault("flappers", {}).setdefault(servo_key, {})[f"{position}_degrees"] = degrees
+        if not write_config(config):
+            return jsonify({"success": False, "error": "Failed to save configuration."}), 500
+        run_servo(servo_key, position)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        return servo_test_failure(e)
+    finally:
+        servo_test_lock.release()
+    return jsonify({"success": True, "servo": servo_key, "position": position, "degrees": degrees})
+
+@app.route("/api/servo_test/<design_name>/rest", methods=["POST"])
+def api_servo_test_rest(design_name):
+    """Moves every flapper of the design to where it sits between cards
+    (ramp: closed, tower: centered) in one go."""
+    if design_name not in CALIBRATION_POSITIONS:
+        return jsonify({"success": False, "error": "Unknown sorter design."}), 404
+    refusal = servo_test_refusal()
+    if refusal:
+        return refusal
+    if not servo_test_lock.acquire(timeout=15):
+        return jsonify({"success": False, "error": "Servos are busy, try again."}), 409
+    try:
+        run_servo(",".join(calibration_flappers(design_name, read_design())), CALIBRATION_REST[design_name])
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        return servo_test_failure(e)
+    finally:
+        servo_test_lock.release()
+    return jsonify({"success": True})
+
+@app.route("/api/servo_test/release", methods=["POST"])
+def api_servo_test_release():
+    """Opens the card servo, waits, and closes it again, as the sorting loop does."""
+    refusal = servo_test_refusal()
+    if refusal:
+        return refusal
+    if not servo_test_lock.acquire(timeout=15):
+        return jsonify({"success": False, "error": "Servos are busy, try again."}), 409
+    try:
+        run_servo("card_servo", "open")
+        time.sleep(CARD_RELEASE_HOLD_SEC)
+        run_servo("card_servo", "close")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        return servo_test_failure(e)
+    finally:
+        servo_test_lock.release()
+    return jsonify({"success": True})
+
+def test_feed():
+    """Feeds one card up to the release point (Feed-Card.py). Returns an error
+    response, or None once the card is staged."""
+    if not feed_test_lock.acquire(blocking=False):
+        return jsonify({"success": False, "error": "A card is already being fed."}), 409
+    try:
+        result = subprocess.run(["python3", os.path.join(BASE_DIR, "scripts", "Feed-Card.py")],
+                                capture_output=True, text=True, timeout=90)
+    except subprocess.TimeoutExpired as e:
+        return servo_test_failure(e)
+    finally:
+        feed_test_lock.release()
+    if result.returncode != 0:
+        return jsonify({"success": False, "error": "Feed failed.",
+                        "output": (result.stdout or "")[-1500:]}), 500
+    return None
+
+@app.route("/api/servo_test/feed", methods=["POST"])
+def api_servo_test_feed():
+    refusal = servo_test_refusal()
+    if refusal:
+        return refusal
+    return test_feed() or jsonify({"success": True})
+
+@app.route("/api/servo_test/<design_name>/deposit", methods=["POST"])
+def api_servo_test_deposit(design_name):
+    """One sorting cycle into a chosen bin, without the card read: every
+    flapper to rest (as sorting does at start), optionally feed a card, then
+    the same deliver_card() the sorting loop uses."""
+    if design_name not in CALIBRATION_POSITIONS:
+        return jsonify({"success": False, "error": "Unknown sorter design."}), 404
+    payload = request.get_json(silent=True) or {}
+    design = dict(read_design(), design=design_name)
+    try:
+        bin_num = int(payload.get("bin"))
+    except (TypeError, ValueError):
+        bin_num = 0
+    if not 1 <= bin_num <= sorter_design.bin_count(design):
+        return jsonify({"success": False, "error": "Unknown bin."}), 400
+    refusal = servo_test_refusal()
+    if refusal:
+        return refusal
+
+    if not servo_test_lock.acquire(timeout=15):
+        return jsonify({"success": False, "error": "Servos are busy, try again."}), 409
+    try:
+        run_servo(",".join(calibration_flappers(design_name, design)), CALIBRATION_REST[design_name])
+        if payload.get("feed"):
+            error = test_feed()
+            if error:
+                return error
+        deliver_card(design, bin_num)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        return servo_test_failure(e)
+    finally:
+        servo_test_lock.release()
+    return jsonify({"success": True, "bin": bin_num})
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ def _fake_hardware_modules():
 def web(tmp_path, monkeypatch):
     root = tmp_path / "sorter"
     root.mkdir()
-    for name in ("Basic-Website.py", "games.py", "game_packs.py", "camera_client.py"):
+    for name in ("Basic-Website.py", "games.py", "game_packs.py", "camera_client.py", "sorter_design.py"):
         shutil.copy(os.path.join(REPO, name), root / name)
     shutil.copytree(os.path.join(REPO, "games"), root / "games")
     shutil.copytree(os.path.join(REPO, "templates"), root / "templates")
@@ -49,8 +49,8 @@ def web(tmp_path, monkeypatch):
               "2": {"name": "", "type": "Legendary Creature", "colors": ["W", "U"], "cmc": "", "set_symbol": ""}}
     (root / "storage" / "bin-info.json").write_text(json.dumps(legacy))
 
-    saved_modules = {k: sys.modules.get(k) for k in ("games", "game_packs", "camera_client", "pigpio", "led_controller")}
-    for k in ("games", "game_packs", "camera_client"):
+    saved_modules = {k: sys.modules.get(k) for k in ("games", "game_packs", "camera_client", "sorter_design", "pigpio", "led_controller")}
+    for k in ("games", "game_packs", "camera_client", "sorter_design"):
         sys.modules.pop(k, None)
     sys.modules.update(_fake_hardware_modules())
     monkeypatch.syspath_prepend(str(root))
@@ -398,3 +398,252 @@ def test_scanned_image_version_changes_only_with_the_image(web):
     assert first == client.get("/get_move_count").get_json()["card_scanned_version"]
     os.utime(scanned, ns=(2_000_000_000, 2_000_000_000))
     assert client.get("/get_move_count").get_json()["card_scanned_version"] != first
+
+
+# --- Flapper calibration pages (ramp open/close, tower left/center/right) ---
+def test_tower_calibration_page_shows_levels_with_defaults(web):
+    module, client, root = web
+    html = client.get("/servo_test/tower").get_data(as_text=True)
+    for key in ("flapper_1", "flapper_2", "flapper_3"):
+        assert f'data-servo="{key}"' in html
+    assert 'data-servo="flapper_4"' not in html
+    assert 'data-saved="60"' in html and 'data-saved="90"' in html and 'data-saved="120"' in html
+    assert "The sorter is set to <strong>Ramp</strong>" in html
+    assert client.get("/servo_test/spiral").status_code == 404
+
+
+def test_ramp_calibration_replaces_the_settings_flapper_fields(web):
+    module, client, root = web
+    html = client.get("/settings").get_data(as_text=True)
+    assert "/servo_test/ramp" in html and "/servo_test/tower" in html
+    assert "flapper_1_open_degrees" not in html and 'id="card_servo_open_degrees"' in html
+    assert client.get("/servo_test").headers["Location"].endswith("/servo_test/ramp")  # the current design
+
+    config = json.loads((root / "storage" / "config.json").read_text())
+    html = client.get("/servo_test/ramp").get_data(as_text=True)
+    assert 'data-servo="flapper_9"' in html and 'data-servo="flapper_10"' not in html
+    assert f'data-saved="{config["flappers"]["flapper_1"]["open_degrees"]}"' in html
+    assert "Bin 9" in html and "Close All" in html
+
+    ok = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=ok) as run:
+        r = client.post("/api/servo_test/move", json={"design": "ramp", "servo": "flapper_9", "position": "open", "degrees": 55})
+        assert r.get_json()["success"]
+        assert run.call_args.args[0][2:] == ["flapper_9", "open"]
+        assert client.post("/api/servo_test/move", json={"design": "ramp", "servo": "flapper_1", "position": "left", "degrees": 55}).status_code == 400
+        assert client.post("/api/servo_test/ramp/rest").get_json()["success"]
+        assert run.call_args.args[0][2:] == [",".join(f"flapper_{i}" for i in range(1, 10)), "close"]
+    saved = json.loads((root / "storage" / "config.json").read_text())["flappers"]["flapper_9"]
+    assert saved["open_degrees"] == 55
+
+    # Saving Settings no longer touches flapper degrees.
+    client.post("/settings", data=_settings_form())
+    assert json.loads((root / "storage" / "config.json").read_text())["flappers"]["flapper_9"]["open_degrees"] == 55
+
+
+def test_servo_test_move_saves_degrees_and_moves(web):
+    module, client, root = web
+    ok = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=ok) as run:
+        r = client.post("/api/servo_test/move", json={"design": "tower", "servo": "flapper_2", "position": "right", "degrees": 135})
+    assert r.get_json()["success"]
+    assert run.call_args.args[0][1].endswith("servo_controller.py")
+    assert run.call_args.args[0][2:] == ["flapper_2", "right"]
+    saved = json.loads((root / "storage" / "config.json").read_text())["flappers"]["flapper_2"]
+    assert saved["right_degrees"] == 135
+    assert "open_degrees" in saved  # the sorter's open/close settings are untouched
+    assert 'value="135"' in client.get("/servo_test/tower").get_data(as_text=True)
+
+
+def test_servo_test_move_rejects_bad_input_and_sorting(web):
+    module, client, root = web
+    with mock.patch.object(module.subprocess, "run") as run:
+        for body in ({"design": "tower", "servo": "flapper_4", "position": "left", "degrees": 90},
+                     {"design": "tower", "servo": "card_servo", "position": "left", "degrees": 90},
+                     {"design": "tower", "servo": "flapper_1", "position": "open", "degrees": 90},
+                     {"design": "tower", "servo": "flapper_1", "position": "left", "degrees": 181},
+                     {"design": "tower", "servo": "flapper_1", "position": "left", "degrees": "abc"},
+                     {"servo": "flapper_1", "position": "left", "degrees": 90}):
+            assert client.post("/api/servo_test/move", json=body).status_code == 400
+        module.sorting_active = True
+        try:
+            assert client.post("/api/servo_test/move", json={"design": "tower", "servo": "flapper_1", "position": "left", "degrees": 90}).status_code == 409
+            assert client.post("/api/servo_test/tower/rest").status_code == 409
+            assert client.post("/api/servo_test/feed").status_code == 409
+            assert client.post("/api/servo_test/release").status_code == 409
+        finally:
+            module.sorting_active = False
+    assert not run.called
+
+
+def test_servo_test_release_and_feed(web):
+    module, client, root = web
+    ok = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=ok) as run, \
+         mock.patch.object(module.time, "sleep"):
+        assert client.post("/api/servo_test/release").get_json()["success"]
+    assert [c.args[0][2:] for c in run.call_args_list] == [["card_servo", "open"], ["card_servo", "close"]]
+
+    failed = subprocess.CompletedProcess([], 1, stdout="Timeout: Sensor 1 did not go BLOCKED in time\n1\n", stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=failed) as run:
+        r = client.post("/api/servo_test/feed")
+    assert run.call_args.args[0][1].endswith("Feed-Card.py")
+    assert r.status_code == 500 and "Sensor 1 did not go BLOCKED" in r.get_json()["output"]
+    assert module.feed_test_lock.acquire(blocking=False)  # freed after the feed
+    module.feed_test_lock.release()
+
+
+# --- Sorter design: ramp (default) or tower ---
+def _set_design(root, design, levels=3):
+    path = root / "storage" / "config.json"
+    config = json.loads(path.read_text())
+    config["sorter"] = {"design": design, "tower_levels": levels}
+    path.write_text(json.dumps(config))
+
+
+def _settings_form(**extra):
+    form = {"save": "1", "smtp_port": "587"}
+    form.update(extra)
+    return form
+
+
+def test_tower_sorting_routes_by_level_and_side(web):
+    """Tower: every level is centered before the first card; a matched card tips
+    its level's flapper, is released, the level above tips the same way to push
+    it through, both re-center; failures go to the last bin."""
+    module, client, root = web
+    _set_design(root, "tower", 2)
+    calls = []
+    cards = iter([
+        {"name": "Lightning Bolt", "type": "Instant", "colors": ["R"], "set_symbol": "lea", "collector_number": "161"},
+        {"error": "unreadable"},
+    ])
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[2:])
+        if os.path.basename(cmd[1]) == "Read-Card.py":
+            card = next(cards)
+            if "error" in card:
+                module.sorting_active = False
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(card), stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    module.box_criteria[1] = module.games.empty_criteria(module.active_game)  # the fixture's bin 1 takes Instants
+    module.box_criteria[3] = module.games.normalize_criteria_value(module.active_game, {"type_tags": ["Instant"]})
+    module.sorting_active = True
+    with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+         mock.patch.object(module.time, "sleep"):
+        module.sorting_loop()
+
+    servo_calls = [c for c in calls if c]
+    assert servo_calls[0] == ["flapper_1,flapper_2", "center"]
+    first_card = servo_calls[1:6]
+    assert first_card == [["flapper_2", "left"], ["card_servo", "open"], ["flapper_1", "left"],
+                          ["flapper_2,flapper_1", "center"], ["card_servo", "close"]]
+    assert servo_calls[6:] == [["card_servo", "open"], ["card_servo", "close"]]  # catch-all: no flapper moves
+    assert module.bin_counts[3] == 1 and module.bin_counts[5] == 1 and module.bin_counts[10] == 0
+
+
+def test_bin_pages_follow_the_design(web):
+    module, client, root = web
+    html = client.get("/").get_data(as_text=True)
+    assert 'data-bin="10"' in html and 'data-bin="11"' not in html
+    assert "Ramp (10 bins)" in html
+    assert client.post("/update_bin_criteria", data={"bin_index": "11"}).status_code == 400
+
+    _set_design(root, "tower", 6)
+    html = client.get("/").get_data(as_text=True)
+    assert 'data-bin="13"' in html and 'data-bin="14"' not in html
+    assert "Level 6 Right" in html and "Catch-all" in html
+    assert 'id="binCount13"' in html and "i <= 13;" in html
+    r = client.post("/update_bin_criteria", data={"bin_index": "12", "game_id": "mtg", "f_name_12": "a-c"})
+    assert r.get_json()["success"]
+    saved = json.loads((root / "storage" / "bin-info-mtg.json").read_text())
+    assert saved["12"]["name"] == "a-c"
+
+    # Back to the ramp: bin 12 is hidden but its criteria are kept.
+    _set_design(root, "ramp")
+    assert 'data-bin="12"' not in client.get("/").get_data(as_text=True)
+    with module.lock:
+        module.load_game_state("mtg")
+    assert module.box_criteria[12]["name"] == "a-c"
+
+
+def test_settings_saves_design_and_refuses_change_while_sorting(web):
+    module, client, root = web
+    html = client.get("/settings").get_data(as_text=True)
+    assert 'value="ramp" checked' in html
+
+    client.post("/settings", data=_settings_form(sorter_design="tower", tower_levels="5"))
+    assert json.loads((root / "storage" / "config.json").read_text())["sorter"] == {"design": "tower", "tower_levels": 5}
+
+    html = client.post("/settings", data=_settings_form(sorter_design="tower", tower_levels="16")).get_data(as_text=True)
+    assert "Tower Levels must be a whole number from 1 to 15" in html
+
+    module.sorting_active = True
+    try:
+        html = client.post("/settings", data=_settings_form(sorter_design="ramp")).get_data(as_text=True)
+    finally:
+        module.sorting_active = False
+    assert "Stop sorting before changing the sorter design" in html
+    assert json.loads((root / "storage" / "config.json").read_text())["sorter"]["design"] == "tower"
+
+
+def test_servo_test_covers_every_tower_level(web):
+    module, client, root = web
+    _set_design(root, "tower", 12)
+    html = client.get("/servo_test/tower").get_data(as_text=True)
+    assert 'data-servo="flapper_12"' in html and 'data-servo="flapper_13"' not in html
+    assert "channel 11" in html and "Bin 24" in html  # flapper 12 sits on channel 11
+    ok = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=ok) as run:
+        r = client.post("/api/servo_test/move", json={"design": "tower", "servo": "flapper_12", "position": "left", "degrees": 70})
+        assert r.get_json()["success"]
+        assert client.post("/api/servo_test/move", json={"design": "tower", "servo": "flapper_13", "position": "left", "degrees": 70}).status_code == 400
+        assert client.post("/api/servo_test/tower/rest").get_json()["success"]
+    assert run.call_args.args[0][2:] == [",".join(f"flapper_{i}" for i in range(1, 13)), "center"]
+
+
+def test_test_deposit_runs_the_sorting_cycle(web):
+    """Test Deposit: flappers to rest, optional feed, then the sorting loop's
+    own delivery (with the level-above push on a tower)."""
+    module, client, root = web
+    _set_design(root, "tower", 3)
+    html = client.get("/servo_test/tower").get_data(as_text=True)
+    assert 'data-bin="7"' in html and 'data-bin="8"' not in html and "Catch-all" in html
+
+    calls = []
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[1].rsplit("/", 1)[-1:] + cmd[2:])
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+         mock.patch.object(module.time, "sleep"):
+        assert client.post("/api/servo_test/tower/deposit", json={"bin": 6, "feed": True}).get_json()["success"]
+    assert calls == [
+        ["servo_controller.py", "flapper_1,flapper_2,flapper_3", "center"],
+        ["Feed-Card.py"],
+        ["servo_controller.py", "flapper_3", "right"],
+        ["servo_controller.py", "card_servo", "open"],
+        ["servo_controller.py", "flapper_2", "right"],
+        ["servo_controller.py", "flapper_3,flapper_2", "center"],
+        ["servo_controller.py", "card_servo", "close"],
+    ]
+
+    # Ramp page, no feed, catch-all: flappers close, the card servo cycles.
+    calls.clear()
+    with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+         mock.patch.object(module.time, "sleep"):
+        assert client.post("/api/servo_test/ramp/deposit", json={"bin": 10, "feed": False}).get_json()["success"]
+        assert client.post("/api/servo_test/ramp/deposit", json={"bin": 11}).status_code == 400
+    assert calls == [["servo_controller.py", ",".join(f"flapper_{i}" for i in range(1, 10)), "close"],
+                     ["servo_controller.py", "card_servo", "open"], ["servo_controller.py", "card_servo", "close"]]
+
+    # A failed feed stops before the card is released.
+    failed = subprocess.CompletedProcess([], 1, stdout="Timeout: Sensor 2 did not go BLOCKED in time\n1\n", stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=failed) as run:
+        r = client.post("/api/servo_test/tower/deposit", json={"bin": 1, "feed": True})
+    assert r.status_code == 500 and "Sensor 2" in r.get_json()["output"]
+    assert not any(c.args[0][2:] == ["card_servo", "open"] for c in run.call_args_list)
+    assert module.servo_test_lock.acquire(blocking=False)  # freed after the failure
+    module.servo_test_lock.release()

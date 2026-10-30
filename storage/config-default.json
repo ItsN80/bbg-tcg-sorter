@@ -12,6 +12,10 @@
         "timeout_seconds": 60
     },
     "scryfall_search_url": "https://api.scryfall.com/cards/named?fuzzy={}",
+    "sorter": {
+        "design": "ramp",
+        "tower_levels": 3
+    },
     "flappers": {
         "flapper_1": {
             "channel": 0,

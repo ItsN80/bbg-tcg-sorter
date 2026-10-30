@@ -13,6 +13,8 @@ import games  # noqa: E402
 
 FAB_DIR = os.path.join(games.BUILTIN_GAMES_DIR, "fab")
 
+RAMP_CATCH_ALL = 10
+
 # Non-deck oddities that are allowed to fall through to the catch-all bin 10.
 BIN10_OK_TYPES = {"Event", "Macro", "Placeholder Card"}
 BIN10_OK_NAMES = {"Marked"}  # typeless "Marked" reminder card
@@ -42,10 +44,10 @@ def bins(fab):
 
 
 def route(fab, bins, card):
-    for i in range(1, games.BIN_COUNT + 1):
+    for i in range(1, RAMP_CATCH_ALL + 1):
         if games.matches_criteria(fab, card, bins[i]):
             return i
-    return games.BIN_COUNT
+    return RAMP_CATCH_ALL
 
 
 def first(cards, name, pitch=None):
@@ -75,11 +77,14 @@ def test_lookup_file_matches_definition(fab):
 
 def test_default_bins_round_trip(fab):
     raw = _load_json(os.path.join(FAB_DIR, "default-bins.json"))
-    assert set(raw) == {str(i) for i in range(1, games.BIN_COUNT + 1)}
+    assert set(raw) == {str(i) for i in range(1, RAMP_CATCH_ALL + 1)}
     keys = {flt["key"] for flt in fab["filters"]}
     for value in raw.values():
         assert set(value) == keys
-    assert games.normalize_box_criteria(fab, raw) == {int(k): v for k, v in raw.items()}
+    normalized = games.normalize_box_criteria(fab, raw)
+    assert {i: normalized[i] for i in range(1, RAMP_CATCH_ALL + 1)} == {int(k): v for k, v in raw.items()}
+    # Bins past the ramp's 10 (tower only) start empty.
+    assert all(not games.is_criteria_set(normalized[i]) for i in range(RAMP_CATCH_ALL + 1, games.MAX_BIN_COUNT + 1))
     assert not games.is_criteria_set(raw["10"])
 
 
@@ -146,7 +151,7 @@ def test_every_card_routes_and_histogram(fab, bins, cards):
     for card in cards:
         b = route(fab, bins, card)
         histogram[b] += 1
-        if b == games.BIN_COUNT and card["name"] not in BIN10_OK_NAMES \
+        if b == RAMP_CATCH_ALL and card["name"] not in BIN10_OK_NAMES \
                 and not BIN10_OK_TYPES & set(card["types"]):
             unexpected[card["type_text"] or card["name"]] += 1
     print("\nFaB default-bin routing:", {k: histogram[k] for k in sorted(histogram)})

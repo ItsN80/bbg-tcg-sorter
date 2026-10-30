@@ -52,11 +52,12 @@ import os
 import re
 import sys
 
+from sorter_design import MAX_BIN_COUNT
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BUILTIN_GAMES_DIR = os.path.join(BASE_DIR, "games")
 USER_GAMES_DIR = os.path.join(BASE_DIR, "storage", "games")
 DEFAULT_GAME_ID = "mtg"
-BIN_COUNT = 10
 SCHEMA_VERSION = 1
 
 GAME_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
@@ -374,7 +375,7 @@ def empty_criteria(game):
 
 
 def default_box_criteria(game):
-    return {i: empty_criteria(game) for i in range(1, BIN_COUNT + 1)}
+    return {i: empty_criteria(game) for i in range(1, MAX_BIN_COUNT + 1)}
 
 
 def normalize_criteria_value(game, raw_value):
@@ -410,7 +411,7 @@ def normalize_box_criteria(game, raw):
             box_num = int(raw_key)
         except (TypeError, ValueError):
             continue
-        if box_num < 1 or box_num > BIN_COUNT or not isinstance(raw_value, dict):
+        if box_num < 1 or box_num > MAX_BIN_COUNT or not isinstance(raw_value, dict):
             continue
         normalized[box_num] = normalize_criteria_value(game, raw_value)
     return normalized
@@ -535,7 +536,7 @@ def _match_filter(flt, crit_value, card):
 
 def matches_criteria(game, card, criteria):
     """True if the card satisfies every filter set on this bin. A bin with no
-    filters set never matches (unmatched cards fall through to bin 10)."""
+    filters set never matches (unmatched cards fall through to the catch-all bin)."""
     if not is_criteria_set(criteria):
         return False
     for flt in game["filters"]:

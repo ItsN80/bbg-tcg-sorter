@@ -3,8 +3,10 @@
 An automated trading card sorter built on a Raspberry Pi 4. Cards are fed through a
 physical mechanism, a camera captures each card, an OCR/vision provider (AWS
 Rekognition or an Ollama-compatible vision model) reads the card name/set, Scryfall
-identifies the card, and servo-controlled flappers route it into one of 10 bins. A
-Flask web UI runs the whole thing and exposes live status, bin rules, and settings.
+identifies the card, and servo-controlled flappers route it into a bin: one of 10 on
+the ramp design, or 2 per level plus a catch-all on the tower design (1–15 levels,
+chosen under Settings → Sorter Design). A Flask web UI runs the whole thing and
+exposes live status, bin rules, and settings.
 
 3D-printable design files for the physical build: **[Etsy listing](https://www.etsy.com/listing/4357367379/mtg-card-sorter-3d-print-stl-files-ikea)**
 

@@ -1,0 +1,112 @@
+/* Colours shared by every page. Light is the default; theme.js sets
+   data-theme="dark" on <html> for dark mode. Pages use these variables
+   instead of fixed colours so both themes stay in step. */
+:root {
+    color-scheme: light;
+    --bg: #f4f4f9;              /* page background */
+    --card-bg: #ffffff;         /* cards, panels */
+    --card-shadow: rgba(0, 0, 0, 0.1);
+    --tile-bg: #eef1f4;         /* stat tiles, inactive pills, quiet buttons */
+    --tile-hover: #e2e7eb;
+    --subtle-bg: #f7f9fb;       /* sub-sections, read-only result boxes */
+    --ink: #2c3e50;             /* headings, strong values */
+    --text: #333333;            /* body text */
+    --muted: #6b7a86;           /* hints, labels */
+    --border: #e0e4e8;
+    --border-strong: #c7ced4;
+    --input-bg: #ffffff;
+    --input-border: #cccccc;
+    --accent: #3498db;
+    --accent-hover: #2980b9;
+    --accent-soft: #eaf4fc;
+    --selected-bg: #2c3e50;     /* the active tab pill */
+    --selected-ink: #ffffff;
+    --quiet-btn: #7f8c8d;       /* grey "secondary" buttons */
+    --quiet-btn-hover: #6c7a7b;
+    --danger: #c0392b;
+    --danger-hover: #a5281b;
+    --danger-soft-bg: #fdecea;
+    --danger-soft-ink: #8a1f11;
+    --danger-soft-border: #f5c2bc;
+    --ok-ink: #1f7a1f;
+    --ok-soft-bg: #e8f6ec;
+    --ok-soft-border: #c5e6cd;
+    --warn-ink: #a05a00;
+    --warn-soft-bg: #fdf3e7;
+    --warn-soft-border: #f0dcb8;
+    --highlight-bg: #fdf2d0;    /* notices, "busy" badges */
+    --console-bg: #1e272e;      /* log viewers stay dark in both themes */
+    --console-ink: #d2dae2;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #12171c;
+    --card-bg: #1b2229;
+    --card-shadow: rgba(0, 0, 0, 0.45);
+    --tile-bg: #252e36;
+    --tile-hover: #2f3a44;
+    --subtle-bg: #161c22;
+    --ink: #e6ebef;
+    --text: #d3d9de;
+    --muted: #95a3ae;
+    --border: #2f3a44;
+    --border-strong: #46535e;
+    --input-bg: #11161b;
+    --input-border: #46535e;
+    --accent: #3498db;
+    --accent-hover: #4aa3e0;
+    --accent-soft: #1b3346;
+    --selected-bg: #dfe6ec;
+    --selected-ink: #12171c;
+    --quiet-btn: #56636d;
+    --quiet-btn-hover: #66747e;
+    --danger: #e0645a;
+    --danger-hover: #ea7d74;
+    --danger-soft-bg: #3a1d1a;
+    --danger-soft-ink: #f2b8b0;
+    --danger-soft-border: #6b2e27;
+    --ok-ink: #7fd38f;
+    --ok-soft-bg: #17301e;
+    --ok-soft-border: #2c5a37;
+    --warn-ink: #f0b866;
+    --warn-soft-bg: #33280f;
+    --warn-soft-border: #5c4a1f;
+    --highlight-bg: #3a3214;
+    --console-bg: #0d1115;
+    --console-ink: #d2dae2;
+}
+
+/* Round icon buttons at the end of the top bar (templates/nav_icons.html):
+   the sun / moon theme switch and Log Out */
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    margin: 0;          /* pages with a global button margin (Settings) */
+    padding: 0;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    background: var(--tile-bg);
+    color: var(--ink);
+    cursor: pointer;
+    text-decoration: none;
+}
+.icon-btn:hover {
+    background: var(--tile-hover);
+}
+.icon-btn svg {
+    width: 18px;
+    height: 18px;
+}
+/* The theme switch shows the icon of the theme a click switches to */
+.theme-toggle .icon-sun,
+:root[data-theme="dark"] .theme-toggle .icon-moon {
+    display: none;
+}
+:root[data-theme="dark"] .theme-toggle .icon-sun {
+    display: block;
+}

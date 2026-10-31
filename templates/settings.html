@@ -6,22 +6,18 @@
     <title>Settings</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
     <style>
-        :root {
-            --muted: #6b7a86;
-            --ink: #2c3e50;
-            --tile-bg: #eef1f4;
-            --accent: #3498db;
-        }
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f5f7fa;
+            background-color: var(--bg);
             margin: 0;
             padding: 14px 20px 20px;
-            color: #333;
+            color: var(--text);
         }
         h1, h2, h3 {
-            color: #2c3e50;
+            color: var(--ink);
         }
         .page-header {
             margin-bottom: 12px;
@@ -57,14 +53,14 @@
             transition: background-color 0.15s, color 0.15s, border-color 0.15s;
         }
         .pill:hover {
-            background: #e2e7eb;
+            background: var(--tile-hover);
         }
         .pill.active {
-            background: var(--ink);
-            color: #fff;
+            background: var(--selected-bg);
+            color: var(--selected-ink);
         }
         .pill.active:hover {
-            background: var(--ink);
+            background: var(--selected-bg);
         }
         .pill.game-pill.active,
         .pill.game-pill.active:hover {
@@ -74,8 +70,8 @@
         .pill.game-pill-add,
         .pill.game-pill-add:hover {
             background: transparent;
-            border: 1.5px dashed #b7c0c8;
-            color: #6b7680;
+            border: 1.5px dashed var(--border-strong);
+            color: var(--muted);
             cursor: pointer;
         }
         /* Games panel (pack upload / export / delete) lives outside the main
@@ -83,10 +79,10 @@
         .games-panel {
             max-width: 1000px;
             margin: 20px auto 0;
-            background-color: #fff;
+            background-color: var(--card-bg);
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px var(--card-shadow);
         }
         .games-panel form {
             max-width: none;
@@ -105,7 +101,7 @@
         .games-table th, .games-table td {
             text-align: left;
             padding: 6px 8px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--border);
         }
         .games-table td.actions {
             white-space: nowrap;
@@ -117,7 +113,7 @@
         .games-message {
             padding: 8px 12px;
             border-radius: 6px;
-            background: #eef6fc;
+            background: var(--accent-soft);
             margin-bottom: 12px;
         }
         @media (max-width: 600px) {
@@ -128,17 +124,17 @@
         form {
             max-width: 1000px;
             margin: auto;
-            background-color: #fff;
+            background-color: var(--card-bg);
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px var(--card-shadow);
         }
         .section {
             margin-bottom: 20px;
             padding: 0;
             border-radius: 8px;
-            background-color: #fdfdfd;
-            border: 1px solid #dcdcdc;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
             overflow: hidden;
         }
         .section > summary {
@@ -147,7 +143,7 @@
             padding: 15px;
             font-size: 1.25rem;
             font-weight: 700;
-            color: #2c3e50;
+            color: var(--ink);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -167,18 +163,18 @@
             transform: rotate(90deg);
         }
         .section > summary:hover {
-            background-color: #f2f4f6;
+            background-color: var(--tile-bg);
         }
         .accordion-body {
             padding: 0 15px 15px 15px;
-            border-top: 1px solid #eee;
+            border-top: 1px solid var(--border);
         }
         .accordion-body h3:first-child {
             margin-top: 15px;
         }
         .subsection {
-            background-color: #f7f9fb;
-            border-left: 3px solid #3498db;
+            background-color: var(--subtle-bg);
+            border-left: 3px solid var(--accent);
             padding: 10px 15px;
             border-radius: 6px;
         }
@@ -191,9 +187,14 @@
             width: 100%;
             padding: 8px;
             margin-top: 5px;
-            border: 1px solid #ccc;
             border-radius: 4px;
             box-sizing: border-box;
+        }
+        input[type="text"], input[type="password"], input[type="email"],
+        input[type="number"], select, textarea {
+            border: 1px solid var(--input-border);
+            background-color: var(--input-bg);
+            color: var(--text);
         }
         .inline-row {
             display: flex;
@@ -217,7 +218,7 @@
         }
         button {
             padding: 8px 16px;
-            background-color: #3498db;
+            background-color: var(--accent);
             color: white;
             border: none;
             border-radius: 5px;
@@ -226,14 +227,66 @@
             font-size: 0.9rem;
         }
         button:hover {
-            background-color: #2980b9;
+            background-color: var(--accent-hover);
         }
+        button.quiet {
+            background-color: var(--quiet-btn);
+        }
+        button.quiet:hover {
+            background-color: var(--quiet-btn-hover);
+        }
+        button.danger {
+            background-color: var(--danger);
+        }
+        button.danger:hover {
+            background-color: var(--danger-hover);
+        }
+        .hint-text {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        /* Save bar: stays at the bottom of the screen while the form scrolls */
         .form-actions {
-            text-align: center;
-            margin-top: 30px;
+            position: sticky;
+            bottom: 0;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 30px -20px -20px;   /* full form width, flush with its bottom edge */
+            padding: 12px 20px;
+            background: var(--card-bg);
+            border-top: 1px solid var(--border);
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 -4px 10px var(--card-shadow);
         }
         .form-actions button {
-            margin: 0 10px;
+            margin: 0;
+        }
+        .actions-divider {
+            width: 1px;
+            height: 28px;
+            margin: 0 8px;
+            background: var(--border-strong);
+        }
+        .save-status {
+            min-width: 170px;
+            text-align: right;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--muted);
+        }
+        .save-status.saved {
+            color: var(--ok-ink);
+        }
+        .save-status.unsaved {
+            color: var(--warn-ink);
+        }
+        .save-status.error {
+            color: var(--danger);
+            min-width: 0;
         }
     </style>
 </head>
@@ -250,11 +303,9 @@
                 <a href="{{ url_for('index') }}" class="pill">Live Sorting</a>
                 <a href="{{ url_for('index') }}?tab=bins" class="pill">Bin Setup</a>
                 <a href="{{ url_for('settings') }}" class="pill active">Settings</a>
+                {% include 'nav_icons.html' %}
             </div>
         </div>
-        {% if error %}
-          <p style="color:red; text-align:center;">{{ error }}</p>
-        {% endif %}
     </div>
     <form method="POST" autocomplete="off">
         <details class="section" open>
@@ -327,7 +378,7 @@
 
                     <label><input type="checkbox" id="ollama_debug" name="ollama_debug" {% if config.get('ollama', {}).get('debug') %}checked{% endif %}> Verbose Debug Logging</label>
 
-                    <p style="font-size: 0.85rem; color: #666; margin-top: 15px;">
+                    <p class="hint-text" style="margin-top: 15px;">
                         Note: the prompt and parameters below only take effect for a
                         <strong>direct Ollama</strong> server. DO Serverless deployments
                         (like the bundled quota_service.py) intentionally use their own
@@ -335,9 +386,9 @@
                     </p>
 
                     <label for="ollama_prompt">Recognition Prompt ({{ game.name }}):</label>
-                    <textarea id="ollama_prompt" name="ollama_prompt" rows="6" style="width:100%; padding:8px; margin-top:5px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; font-family: monospace; font-size: 0.85rem;"
+                    <textarea id="ollama_prompt" name="ollama_prompt" rows="6" style="width:100%; padding:8px; margin-top:5px; border-radius:4px; box-sizing:border-box; font-family: monospace; font-size: 0.85rem;"
                         placeholder="Leave blank to use the game's built-in prompt:&#10;&#10;{{ game.recognition.prompt }}">{{ game_prompt }}</textarea>
-                    <p style="font-size: 0.8rem; color: #666; margin: 4px 0 0;">Each game has its own prompt; switch games with the pills above to edit another.</p>
+                    <p class="hint-text" style="font-size: 0.8rem; margin: 4px 0 0;">Each game has its own prompt; switch games with the pills above to edit another.</p>
 
                     <div class="inline-row" style="margin-top: 10px;">
                         <div>
@@ -380,7 +431,7 @@
                     <div class="inline-row" style="margin-top: 10px;">
                         <button type="button" id="test_recognition_btn">Test Recognition</button>
                     </div>
-                    <pre id="test_recognition_result" style="white-space: pre-wrap; background: #f7f9fb; border: 1px solid #dcdcdc; border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 0.85rem; display: none;"></pre>
+                    <pre id="test_recognition_result" style="white-space: pre-wrap; background: var(--subtle-bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 0.85rem; display: none;"></pre>
                 </div>
 
                 <div class="subsection" id="aws_settings" style="margin-top: 15px;">
@@ -403,7 +454,7 @@
                     value="{{ config.get('save_scans', {}).get('max_saved', 200) }}">
 
                 <div class="inline-row" style="margin-top: 10px;">
-                    <button type="button" id="clear_saved_scans_btn" style="background-color: #7f8c8d;">Clear Saved Scans</button>
+                    <button type="button" id="clear_saved_scans_btn" class="quiet">Clear Saved Scans</button>
                 </div>
                 <div id="saved_scans_status" style="margin-top: 8px; min-height: 20px; font-size: 0.9rem;"></div>
 
@@ -416,14 +467,13 @@
         <details class="section"{% if error %} open{% endif %}>
             <summary>Card Servo</summary>
             <div class="accordion-body">
-                <p style="margin-top: 15px; opacity: 0.8;">Flapper degrees are set under Sorter Design &rarr; Calibrate Ramp / Tower Flappers.</p>
-                <label for="card_servo_open_degrees">Open Degrees:</label>
-                <input type="text" id="card_servo_open_degrees" name="card_servo_open_degrees" value="{{ config.card_servo.open_degrees or '' }}">
-
-                <label for="card_servo_close_degrees">Close Degrees:</label>
-                <input type="text" id="card_servo_close_degrees" name="card_servo_close_degrees" value="{{ config.card_servo.close_degrees or '' }}">
-
-                <button type="button" onclick="testCardServo()">Test Card Servo</button>
+                <p style="margin-top: 15px;">
+                    Open {{ config.card_servo.open_degrees if config.card_servo.open_degrees is defined else '--' }}&deg;
+                    &middot; Close {{ config.card_servo.close_degrees if config.card_servo.close_degrees is defined else '--' }}&deg;
+                </p>
+                <p class="hint-text">The card servo holds each card and releases it. Its degrees are set with nudge buttons at the
+                    top of the calibration page, next to the flappers, where Release Card tests it.</p>
+                <a href="{{ url_for('servo_test') }}"><button type="button">Calibrate Card Servo</button></a>
             </div>
         </details>
 
@@ -501,7 +551,7 @@
 
                 <div class="inline-row">
                     <button type="button" id="led_apply_btn">Apply</button>
-                    <button type="button" id="led_off_btn" style="background-color: #7f8c8d;">Off</button>
+                    <button type="button" id="led_off_btn" class="quiet">Off</button>
                 </div>
                 <div id="led_status"></div>
             </div>
@@ -526,15 +576,25 @@
             </div>
         </details>
 
+        <details class="section" id="system">
+            <summary>System</summary>
+            <div class="accordion-body">
+                <p class="hint-text" style="margin-top: 15px;">Each of these asks before it runs. Save first: unsaved changes on this page are lost.</p>
+                <div class="inline-row">
+                    <button type="button" onclick="updateProgram()">Update Program</button>
+                    <button type="button" onclick="confirmAction('reboot')" style="background-color: #e67e22;">Reboot Pi</button>
+                    <button type="button" onclick="confirmAction('shutdown')" class="danger">Shutdown Pi</button>
+                </div>
+            </div>
+        </details>
+
         <div class="form-actions">
+            <span id="saveStatus" role="status"
+                  class="save-status{{ ' error' if error else (' saved' if saved else '') }}">{{ error or ('Settings saved.' if saved else '') }}</span>
             <button type="submit" name="save">Save</button>
-            <button type="submit" name="cancel">Cancel</button>
-            <!-- New Reboot and Shutdown Buttons -->
-            <button type="button" onclick="confirmAction('reboot')" style="background-color: #e67e22;">Reboot Pi</button>
-            <button type="button" onclick="confirmAction('shutdown')" style="background-color: #c0392b;">Shutdown Pi</button>
-            <button type="button" onclick="updateProgram()">Update Program</button>
+            <button type="submit" name="cancel" class="quiet">Cancel</button>
+            <span class="actions-divider" aria-hidden="true"></span>
             <a href="{{ url_for('camera_test') }}"><button type="button">Camera Testing</button></a>
-            <a href="{{ url_for('logout') }}"><button type="button" style="background-color: #7f8c8d;">Log Out</button></a>
         </div>
 
         <!-- Hidden input to pass system actions -->
@@ -558,7 +618,7 @@
                         {% if not p.builtin %}
                         <form method="POST" action="{{ url_for('games_delete', game_id=p.id) }}"
                               onsubmit="return confirm('Delete the {{ p.name }} game pack and its bin setup?');">
-                            <button type="submit" style="background-color: #c0392b;">Delete</button>
+                            <button type="submit" class="danger">Delete</button>
                         </form>
                         {% endif %}
                     </td>
@@ -568,7 +628,7 @@
         </table>
 
         <h3>Add a game</h3>
-        <p style="font-size: 0.85rem; color: #666;">
+        <p class="hint-text">
             Upload a game pack (.zip) containing a <code>game.json</code> definition and, for offline lookups, its card
             list. Packs contain only data, never code. The easiest start is to export an existing game and edit it;
             see <code>docs/game-packs.md</code> for the format.
@@ -620,19 +680,39 @@
             if (window.location.hash === "#design") document.getElementById("design").open = true;
         })();
 
-        function runScript(scriptName, args) {
-            let url = `/run_script?script=${encodeURIComponent(scriptName)}`;
-            if (args) url += `&args=${encodeURIComponent(args)}`;
-            fetch(url)
-                .then(response => response.text())
-                .then(data => console.log(`Script ${scriptName} executed:`, data))
-                .catch(error => console.error(`Error running ${scriptName}:`, error));
-        }
+        // Save bar: flag unsaved edits, and keep the same sections open after a
+        // save reloads the page (remembered for this browser tab only).
+        (function () {
+            const form = document.querySelector("form");
+            const status = document.getElementById("saveStatus");
+            function markUnsaved(e) {
+                if (!e.target.name || status.classList.contains("error")) return;  // LED controls apply live
+                status.textContent = "Unsaved changes";
+                status.className = "save-status unsaved";
+            }
+            form.addEventListener("input", markUnsaved);
+            form.addEventListener("change", markUnsaved);
 
-        function testCardServo() {
-            runScript('servo_controller.py', 'card_servo open');
-            setTimeout(() => runScript('servo_controller.py', 'card_servo close'), 2000);
-        }
+            const KEY = "bbg-settings-open-sections";
+            const sections = Array.from(form.querySelectorAll("details.section"));
+            if (!window.location.hash && !status.classList.contains("error")) {
+                try {
+                    const open = JSON.parse(sessionStorage.getItem(KEY) || "null");
+                    if (Array.isArray(open)) sections.forEach((d, i) => { d.open = open.includes(i); });
+                } catch (e) {
+                    // nothing remembered
+                }
+            }
+            sections.forEach(function (d) {
+                d.addEventListener("toggle", function () {
+                    try {
+                        sessionStorage.setItem(KEY, JSON.stringify(sections.flatMap((s, i) => s.open ? [i] : [])));
+                    } catch (e) {
+                        // not remembered; harmless
+                    }
+                });
+            });
+        })();
 
         function confirmAction(actionType) {
             const actionText = actionType === 'reboot' ? 'Reboot the Raspberry Pi' : 'Shutdown the Raspberry Pi';
@@ -643,6 +723,7 @@
         }
 
         function updateProgram() {
+            if (!confirm("Download the latest version of the program and restart the sorter app?")) return;
             fetch("/update_program", { method: "POST" })
                 .then(res => res.json())
                 .then(data => {
@@ -662,7 +743,7 @@
         function setLedStatus(message, ok = true) {
             const el = document.getElementById("led_status");
             el.textContent = message;
-            el.style.color = ok ? "#1f7a1f" : "#b71c1c";
+            el.style.color = ok ? "var(--ok-ink)" : "var(--danger)";
         }
 
         function normalizeHex(hex) {
@@ -815,6 +896,7 @@
         }
 
         async function clearSavedScans() {
+            if (!confirm("Delete every saved scan? This can't be undone.")) return;
             const statusEl = document.getElementById("saved_scans_status");
             statusEl.textContent = "Clearing...";
             try {

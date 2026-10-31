@@ -416,7 +416,8 @@ def test_ramp_calibration_replaces_the_settings_flapper_fields(web):
     module, client, root = web
     html = client.get("/settings").get_data(as_text=True)
     assert "/servo_test/ramp" in html and "/servo_test/tower" in html
-    assert "flapper_1_open_degrees" not in html and 'id="card_servo_open_degrees"' in html
+    assert "flapper_1_open_degrees" not in html and "card_servo_open_degrees" not in html
+    assert "Calibrate Card Servo" in html
     assert client.get("/servo_test").headers["Location"].endswith("/servo_test/ramp")  # the current design
 
     config = json.loads((root / "storage" / "config.json").read_text())
@@ -647,3 +648,163 @@ def test_test_deposit_runs_the_sorting_cycle(web):
     assert not any(c.args[0][2:] == ["card_servo", "open"] for c in run.call_args_list)
     assert module.servo_test_lock.acquire(blocking=False)  # freed after the failure
     module.servo_test_lock.release()
+
+
+def test_every_page_loads_the_theme_and_index_has_the_toggle(web):
+    module, client, root = web
+    pages = ("/", "/settings", "/camera_test", "/failed", "/feed_log", "/sensors", "/servo_test/ramp", "/servo_test/tower")
+    for url in pages:
+        with mock.patch.object(module.subprocess, "run"):
+            html = client.get(url).get_data(as_text=True)
+        assert "/static/theme.css" in html and "/static/theme.js" in html, url
+        # Every page's top bar ends with the theme switch and Log Out.
+        assert 'class="icon-btn theme-toggle" onclick="bbgToggleTheme()"' in html, url
+        assert 'href="/logout" class="icon-btn"' in html, url
+    # Tool pages use the shared top bar, marking the main page they belong to.
+    for url, title, parent in (("/camera_test", "Camera Testing", "Settings"), ("/failed", "Failed Reads Gallery", "Live Sorting"),
+                               ("/feed_log", "Feed Cycle Log", "Settings"), ("/sensors", "IR Sensor Status", "Live Sorting"),
+                               ("/servo_test/tower", "Calibrate Tower Flappers", "Settings")):
+        with mock.patch.object(module.subprocess, "run"):
+            html = client.get(url).get_data(as_text=True)
+        assert f'<h1 class="site-title">{title}' in html, url
+        assert f'class="site-pill active">{parent}</a>' in html, url
+    assert "3 levels · flapper 1 is the top" in client.get("/servo_test/tower").get_data(as_text=True)
+    assert 'class="site-pill extra">Sensor Status</a>' in client.get("/servo_test/ramp").get_data(as_text=True)
+    # Log Out moved to the top bar.
+    assert ">Log Out</button>" not in client.get("/").get_data(as_text=True)
+    assert ">Log Out</button>" not in client.get("/settings").get_data(as_text=True)
+    with client.session_transaction() as sess:
+        sess.clear()
+    assert "/static/theme.css" in client.get("/login").get_data(as_text=True)
+
+
+# --- UI phase 1: confirmations, sorting state, system actions ---
+def test_destructive_buttons_ask_first(web):
+    module, client, root = web
+    html = client.get("/").get_data(as_text=True)
+    for name in ("clear_csv", "clear_monthly_count", "clear_failed_count", "clear_bin_counts", "reset_bins"):
+        button = re.search(r'<button type="submit" name="%s"[^>]*>' % name, html).group(0)
+        assert "data-confirm=" in button, name
+    settings = client.get("/settings").get_data(as_text=True)
+    assert 'confirm("Delete every saved scan?' in settings
+    assert 'confirm("Download the latest version' in settings
+
+
+def test_sorting_state_shows_and_drives_the_buttons(web):
+    module, client, root = web
+    html = client.get("/").get_data(as_text=True)
+    assert 'class="run-status idle"' in html
+    assert re.search(r'id="stopBtn"\s+disabled', html) and not re.search(r'id="startBtn"\s+disabled', html)
+    assert client.get("/get_move_count").get_json()["sorting_state"] == "idle"
+
+    module.sorting_active = True
+    try:
+        html = client.get("/").get_data(as_text=True)
+        assert 'class="run-status running"' in html and re.search(r'id="startBtn"\s+disabled', html)
+        assert client.get("/get_move_count").get_json()["sorting_state"] == "running"
+    finally:
+        module.sorting_active = False
+
+    # Stop pressed, last card still being released.
+    module.sorting_thread = mock.MagicMock(is_alive=mock.MagicMock(return_value=True))
+    try:
+        assert client.get("/get_move_count").get_json()["sorting_state"] == "stopping"
+        html = client.get("/").get_data(as_text=True)
+        assert re.search(r'id="startBtn"\s+disabled', html) and re.search(r'id="stopBtn"\s+disabled', html)
+    finally:
+        module.sorting_thread = None
+
+
+def test_system_actions_have_their_own_section(web):
+    module, client, root = web
+    html = client.get("/settings").get_data(as_text=True)
+    system = html[html.index('id="system"'):html.index('class="form-actions"')]
+    for action in ("updateProgram()", "confirmAction('reboot')", "confirmAction('shutdown')"):
+        assert action in system
+    actions = html[html.index('class="form-actions"'):]
+    actions = actions[:actions.index("</div>")]
+    assert 'name="save"' in actions and "confirmAction" not in actions and "updateProgram" not in actions
+
+
+# --- UI phase 2: redirect after posts, settings save bar, bin tiles ---
+def test_index_buttons_redirect_back_to_the_same_tab(web):
+    module, client, root = web
+    r = client.post("/?tab=bins", data={"clear_monthly_count": "1"})
+    assert r.status_code == 302 and r.headers["Location"].endswith("/?tab=bins")
+    r = client.post("/", data={"clear_bin_counts": "1"})
+    assert r.status_code == 302 and r.headers["Location"].endswith("/")
+
+
+def test_settings_save_stays_on_settings_and_says_so_once(web):
+    module, client, root = web
+    r = client.post("/settings", data=_settings_form())
+    assert r.status_code == 302 and r.headers["Location"].endswith("/settings")
+    html = client.get("/settings").get_data(as_text=True)
+    assert 'class="save-status saved">Settings saved.</span>' in html
+    assert "Settings saved." not in client.get("/settings").get_data(as_text=True)  # shown once
+    html = client.post("/settings", data=_settings_form(sorter_design="tower", tower_levels="0")).get_data(as_text=True)
+    assert 'class="save-status error">Tower Levels must be' in html
+
+
+def test_bin_tiles_label_the_catch_all_and_last_bin(web):
+    module, client, root = web
+    _set_design(root, "tower", 2)
+    html = client.get("/").get_data(as_text=True)
+    assert 'class="bin-count-tile catch-all"' in html and 'id="binTile5"' in html
+    assert '<span class="bin-where">Level 2 Left</span>' in html
+    assert client.get("/get_move_count").get_json()["last_bin"] is None
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1].endswith("Read-Card.py"):
+            module.sorting_active = False
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"error": "unreadable"}), stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    module.sorting_active = True
+    with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+         mock.patch.object(module.time, "sleep"):
+        module.sorting_loop()
+    assert client.get("/get_move_count").get_json()["last_bin"] == 5
+    assert 'class="bin-count-tile catch-all last"' in client.get("/").get_data(as_text=True)
+    client.post("/", data={"clear_bin_counts": "1"})
+    assert client.get("/get_move_count").get_json()["last_bin"] is None
+
+
+def test_credits_render_with_the_same_commas_as_the_live_update(web):
+    module, client, root = web
+    _set_provider(root, "do_serverless")
+    module.do_credits = 12345
+    assert '<span class="credits-number" id="creditsCount">12,345</span>' in client.get("/").get_data(as_text=True)
+    assert module.thousands(1234.0) == "1,234" and module.thousands(1234.5) == "1,234.5" and module.thousands("--") == "--"
+
+
+def test_card_servo_is_calibrated_on_both_pages(web):
+    module, client, root = web
+    for design in ("ramp", "tower"):
+        html = client.get(f"/servo_test/{design}").get_data(as_text=True)
+        assert 'class="panel flapper card-servo" data-servo="card_servo"' in html, design
+        assert "hold card" in html and "release" in html
+    ok = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with mock.patch.object(module.subprocess, "run", return_value=ok) as run:
+        r = client.post("/api/servo_test/move", json={"design": "tower", "servo": "card_servo", "position": "open", "degrees": 12})
+        assert r.get_json()["success"] and run.call_args.args[0][2:] == ["card_servo", "open"]
+        assert client.post("/api/servo_test/move", json={"design": "tower", "servo": "card_servo", "position": "center", "degrees": 12}).status_code == 400
+    assert json.loads((root / "storage" / "config.json").read_text())["card_servo"]["open_degrees"] == 12
+    # Saving Settings no longer touches the card servo.
+    client.post("/settings", data=_settings_form())
+    assert json.loads((root / "storage" / "config.json").read_text())["card_servo"]["open_degrees"] == 12
+    assert "Open 12&deg;" in client.get("/settings").get_data(as_text=True)
+
+
+def test_bin_setup_shows_the_machine_schematic(web):
+    module, client, root = web
+    html = client.get("/").get_data(as_text=True)  # ramp
+    assert '<svg id="machine"' in html
+    assert 'data-bin="9" data-flap="9" data-side="right"' in html
+    assert 'class="mbin catch-all' in html and 'data-bin="10">' in html
+    _set_design(root, "tower", 3)
+    html = client.get("/").get_data(as_text=True)
+    assert 'data-bin="5" data-flap="3" data-side="left"' in html and 'data-bin="6" data-flap="3" data-side="right"' in html
+    assert html.count('class="mflap"') == 3 and 'data-bin="7">' in html and 'data-bin="8"' not in html
+    # Bins with criteria are solid, the rest dashed ("empty"); the fixture's bin 1 takes Instants.
+    assert 'class="mbin" data-bin="1"' in html and 'class="mbin empty" data-bin="3"' in html

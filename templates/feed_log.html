@@ -6,49 +6,20 @@
     <title>Feed Cycle Log</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
     <style>
-        :root {
-            --muted: #6b7a86;
-            --ink: #2c3e50;
-            --tile-bg: #eef1f4;
-        }
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f5f7fa;
+            background-color: var(--bg);
             margin: 0;
             padding: 20px;
-            color: #333;
-        }
-        h1 {
-            color: #2c3e50;
+            color: var(--text);
         }
         .page-header {
             max-width: 1100px;
             margin: 0 auto;
-        }
-        .top-bar {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin-bottom: 14px;
-        }
-        .pill {
-            display: inline-flex;
-            align-items: center;
-            border-radius: 999px;
-            padding: 8px 18px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            border: 1.5px solid transparent;
-            cursor: pointer;
-            background: var(--tile-bg);
-            color: var(--muted);
-            font-family: inherit;
-            text-decoration: none;
-        }
-        .pill:hover {
-            background: #e2e7eb;
         }
         .status-banner {
             max-width: 1100px;
@@ -58,22 +29,22 @@
             font-size: 0.9rem;
         }
         .status-banner.enabled {
-            background: #e8f6ec;
-            color: #1f7a1f;
-            border: 1px solid #c5e6cd;
+            background: var(--ok-soft-bg);
+            color: var(--ok-ink);
+            border: 1px solid var(--ok-soft-border);
         }
         .status-banner.disabled {
-            background: #fdf3e7;
-            color: #a05a00;
-            border: 1px solid #f0dcb8;
+            background: var(--warn-soft-bg);
+            color: var(--warn-ink);
+            border: 1px solid var(--warn-soft-border);
         }
         .content {
             max-width: 1100px;
             margin: auto;
-            background-color: #fff;
+            background-color: var(--card-bg);
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px var(--card-shadow);
         }
         .actions {
             display: flex;
@@ -83,7 +54,7 @@
         }
         button, .btn {
             padding: 8px 16px;
-            background-color: #3498db;
+            background-color: var(--accent);
             color: white;
             border: none;
             border-radius: 5px;
@@ -93,21 +64,21 @@
             display: inline-block;
         }
         button:hover, .btn:hover {
-            background-color: #2980b9;
+            background-color: var(--accent-hover);
         }
         #clear_btn {
-            background-color: #c0392b;
+            background-color: var(--danger);
         }
         #clear_btn:hover {
-            background-color: #a5281b;
+            background-color: var(--danger-hover);
         }
         #clear_status {
             margin-left: 10px;
             font-size: 0.9rem;
         }
         pre {
-            background: #1e272e;
-            color: #d2dae2;
+            background: var(--console-bg);
+            color: var(--console-ink);
             padding: 15px;
             border-radius: 8px;
             overflow-x: auto;
@@ -126,12 +97,9 @@
 </head>
 <body>
     <div class="page-header">
-        <div class="top-bar">
-            <a href="{{ url_for('index') }}" class="pill">Live Sorting</a>
-            <a href="{{ url_for('index') }}?tab=bins" class="pill">Bin Setup</a>
-            <a href="{{ url_for('settings') }}" class="pill">Settings</a>
-        </div>
-        <h1>Feed Cycle Log</h1>
+        {% set page_title = "Feed Cycle Log" %}
+        {% set nav_parent = "settings" %}
+        {% include 'top_bar.html' %}
     </div>
 
     {% if logging_enabled %}

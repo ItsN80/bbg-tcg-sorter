@@ -6,18 +6,9 @@
     <title>Card Sorter</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
     <style>
-        :root {
-            --bg: #f4f4f9;
-            --ink: #2c3e50;
-            --muted: #6b7a86;
-            --border: #e0e4e8;
-            --card-bg: #ffffff;
-            --tile-bg: #eef1f4;
-            --accent: #3498db;
-            --accent-hover: #2980b9;
-            --accent-soft: #eaf4fc;
-        }
         * { box-sizing: border-box; }
         html, body {
             height: 100%;
@@ -27,7 +18,7 @@
             margin: 0;
             padding: 0;
             background-color: var(--bg);
-            color: #333;
+            color: var(--text);
         }
         h1, h2, h3 {
             color: var(--ink);
@@ -75,8 +66,8 @@
         }
         .pill.game-pill-add {
             background: transparent;
-            border: 1.5px dashed #b7c0c8;
-            color: #6b7680;
+            border: 1.5px dashed var(--border-strong);
+            color: var(--muted);
             cursor: pointer;
         }
         .pill.game-pill:disabled {
@@ -84,11 +75,11 @@
             opacity: 0.55;
         }
         .pill.tab-pill.active {
-            background: var(--ink);
-            color: #fff;
+            background: var(--selected-bg);
+            color: var(--selected-ink);
         }
         .pill.tab-pill:not(.active):hover {
-            background: #e2e7eb;
+            background: var(--tile-hover);
         }
 
         /* Shared card / panel styling */
@@ -157,8 +148,8 @@
             font-size: 0.75rem;
         }
         .pill.view-pill.active {
-            background: var(--ink);
-            color: #fff;
+            background: var(--selected-bg);
+            color: var(--selected-ink);
         }
         /* Shows the same area as the stills: Read-Card.py keeps the middle 50%
            of the frame's width and 70% of its height, then rotates it 90°
@@ -245,6 +236,53 @@
             border-radius: 6px;
         }
         .btn-secondary:hover { background: var(--accent-soft); }
+        .btn:disabled,
+        .btn:disabled:hover {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .btn-primary:disabled:hover { background: var(--accent); }
+        .btn-secondary:disabled:hover { background: transparent; }
+
+        /* Sorting state next to Start / Stop */
+        .run-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 14px;
+            min-width: 120px;
+            border-radius: 6px;
+            background: var(--tile-bg);
+            color: var(--muted);
+            font-weight: 700;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        .run-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--border-strong);
+            flex-shrink: 0;
+        }
+        .run-status.running {
+            background: var(--ok-soft-bg);
+            color: var(--ok-ink);
+        }
+        .run-status.running .run-dot {
+            background: #2ecc71;
+            animation: run-pulse 1.2s ease-in-out infinite;
+        }
+        .run-status.stopping {
+            background: var(--warn-soft-bg);
+            color: var(--warn-ink);
+        }
+        .run-status.stopping .run-dot {
+            background: #e67e22;
+        }
+        @keyframes run-pulse {
+            50% { opacity: 0.35; }
+        }
 
         /* Stat tiles */
         .stat-row {
@@ -282,13 +320,13 @@
         }
         .btn-tertiary {
             background: var(--tile-bg);
-            color: #41505c;
+            color: var(--text);
             border: 1px solid var(--border);
             padding: 6px 12px;
             font-size: 0.8rem;
             border-radius: 6px;
         }
-        .btn-tertiary:hover { background: #e2e7eb; }
+        .btn-tertiary:hover { background: var(--tile-hover); }
 
         /* CSV / reset group */
         .csv-group {
@@ -299,6 +337,7 @@
         .csv-group .checkbox-row {
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
             font-size: 0.85rem;
         }
@@ -306,6 +345,7 @@
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
+            justify-content: center;
         }
 
         /* Cards-per-bin counters */
@@ -338,6 +378,34 @@
         .bin-count-tile .stat-value {
             font-size: 1rem;
         }
+        .bin-count-tile {
+            border: 1.5px solid transparent;
+        }
+        .bin-where {
+            display: block;
+            font-size: 0.62rem;
+            color: var(--muted);
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .bin-count-tile.catch-all {
+            background: transparent;
+            border: 1.5px dashed var(--border-strong);
+        }
+        /* The bin the last card went to; flashes when a new card lands there */
+        .bin-count-tile.last {
+            border: 1.5px solid var(--accent);
+            background: var(--accent-soft);
+        }
+        .bin-count-tile.flash {
+            animation: bin-flash 1.2s ease-out;
+        }
+        @keyframes bin-flash {
+            0% { box-shadow: 0 0 0 4px var(--accent); }
+            100% { box-shadow: 0 0 0 0 transparent; }
+        }
 
         /* Identified card info table */
         .info-table {
@@ -363,23 +431,25 @@
         }
         .bin-setup-actions {
             display: flex;
-            justify-content: center;
             align-items: center;
-            gap: 12px;
+            gap: 14px;
             flex-wrap: wrap;
         }
         .bin-setup-hint {
+            flex: 1;
             font-size: 0.85rem;
             color: var(--muted);
-            text-align: center;
-            margin: -6px 0 0;
+            margin: 0;
+        }
+        .btn-reset {
+            color: var(--danger);
         }
         .bin-save-status {
             font-size: 0.8rem;
             color: var(--muted);
         }
         .bin-save-status.error {
-            color: #c0392b;
+            color: var(--danger);
         }
         .bin-editor {
             flex: 1;
@@ -411,7 +481,7 @@
             cursor: pointer;
         }
         .bin-list-item:hover {
-            border-color: #c7ced4;
+            border-color: var(--border-strong);
         }
         .bin-list-item.active {
             border-color: var(--accent);
@@ -435,6 +505,88 @@
             min-height: 0;
             overflow-y: auto;
         }
+        /* Machine schematic (templates/machine_diagram.html) */
+        .machine {
+            width: 300px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .machine-note {
+            font-size: 0.75rem;
+            font-weight: 400;
+            color: var(--muted);
+        }
+        .machine-svg {
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            max-height: calc(100vh - 230px);
+        }
+        .machine-svg text {
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 700;
+            text-anchor: middle;
+            fill: var(--ink);
+            pointer-events: none;
+        }
+        .machine-svg .msub,
+        .machine-svg .mlevel {
+            font-size: 9px;
+            font-weight: 400;
+            fill: var(--muted);
+        }
+        .machine-svg .mfeed {
+            fill: var(--tile-bg);
+            stroke: var(--border-strong);
+        }
+        .machine-svg .mfeed-text {
+            font-weight: 400;
+            fill: var(--muted);
+        }
+        .machine-svg .mshaft {
+            stroke: var(--border-strong);
+            stroke-width: 2;
+        }
+        .machine-svg .mflap {
+            stroke: var(--muted);
+            stroke-width: 4;
+            stroke-linecap: round;
+            transform-box: fill-box;
+            transform-origin: center;
+            transition: transform 0.25s;
+        }
+        .machine-svg .mflap.tip-left,
+        .machine-svg .mflap.tip-right {
+            stroke: var(--accent);
+        }
+        .machine-svg .mflap.tip-left { transform: rotate(45deg); }   /* slopes down to the left */
+        .machine-svg .mflap.tip-right { transform: rotate(-45deg); } /* slopes down to the right */
+        .machine-svg .mpivot {
+            fill: var(--ink);
+        }
+        .machine-svg .mbin {
+            cursor: pointer;
+        }
+        .machine-svg .mbin rect {
+            fill: var(--tile-bg);
+            stroke: var(--border-strong);
+            stroke-width: 1.5;
+        }
+        .machine-svg .mbin.empty rect {
+            fill: transparent;
+            stroke-dasharray: 5 4;
+        }
+        .machine-svg .mbin:hover rect {
+            stroke: var(--accent);
+        }
+        .machine-svg .mbin.selected rect {
+            fill: var(--accent-soft);
+            stroke: var(--accent);
+            stroke-width: 2.5;
+        }
         .bin-fields {
             display: none;
             max-width: 420px;
@@ -452,9 +604,11 @@
             width: 100%;
             padding: 6px 10px;
             margin: 5px 0;
-            border: 1px solid #ccc;
+            border: 1px solid var(--input-border);
             border-radius: 4px;
             box-sizing: border-box;
+            background: var(--input-bg);
+            color: var(--text);
         }
         label {
             font-weight: 500;
@@ -479,9 +633,9 @@
         .notice-banner {
             padding: 10px 14px;
             border-radius: 8px;
-            background: #fdecea;
-            color: #8a1f11;
-            border: 1px solid #f5c2bc;
+            background: var(--danger-soft-bg);
+            color: var(--danger-soft-ink);
+            border: 1px solid var(--danger-soft-border);
             font-size: 0.9rem;
         }
         /* Swatch options (e.g. Flesh and Blood pitch) */
@@ -525,6 +679,12 @@
                 width: auto;
                 flex: 1 1 130px;
             }
+            .machine {
+                width: auto;
+            }
+            .machine-svg {
+                max-height: 420px;
+            }
         }
         @media (max-width: 600px) {
             .app-shell {
@@ -542,7 +702,7 @@
             <div class="switcher-group" id="gameSwitcher">
                 {% for g in games_list %}
                 <button type="button" class="pill game-pill {{ 'active' if g.id == game.id else '' }}" data-game-id="{{ g.id }}"
-                    {% if sorting_active and g.id != game.id %}disabled title="Stop sorting before switching games"{% endif %}>{{ g.name }}</button>
+                    {% if sorting_state != 'idle' and g.id != game.id %}disabled title="Stop sorting before switching games"{% endif %}>{{ g.name }}</button>
                 {% endfor %}
                 <a href="{{ url_for('settings') }}#games" class="pill game-pill-add" id="gamePillAdd" title="Upload a game pack">+ Add game</a>
             </div>
@@ -550,10 +710,11 @@
                 <button type="button" class="pill tab-pill active" data-tab="live">Live Sorting</button>
                 <button type="button" class="pill tab-pill" data-tab="bins">Bin Setup</button>
                 <a href="{{ url_for('settings') }}" class="pill tab-pill">Settings</a>
+                {% include 'nav_icons.html' %}
             </div>
         </div>
-        {% if error or provider_warning %}
-        <div class="notice-banner" role="alert">{{ error or provider_warning }}</div>
+        {% if provider_warning %}
+        <div class="notice-banner" role="alert">{{ provider_warning }}</div>
         {% endif %}
 
         <form method="POST" class="panels">
@@ -578,12 +739,17 @@
                 <div class="live-col">
                     <div class="card credits-tile" id="creditsBadge" style="{{ '' if recognition_provider == 'do_serverless' else 'display: none;' }}">
                         <span class="stat-label">DO Serverless Credits Remaining</span>
-                        <span class="credits-number" id="creditsCount">{{ do_credits if do_credits is not none else '--' }}</span>
+                        <span class="credits-number" id="creditsCount">{{ do_credits|thousands if do_credits is not none else '--' }}</span>
                     </div>
 
                     <div class="primary-actions">
-                        <button type="submit" name="start_sorting" class="btn btn-primary">Start Sorting</button>
-                        <button type="submit" name="stop_sorting" class="btn btn-secondary">Stop Sorting</button>
+                        <span class="run-status {{ sorting_state }}" id="runStatus" role="status">
+                            <span class="run-dot"></span><span id="runStatusText">{{ {'running': 'Sorting', 'stopping': 'Stopping…', 'idle': 'Idle'}[sorting_state] }}</span>
+                        </span>
+                        <button type="submit" name="start_sorting" class="btn btn-primary" id="startBtn"
+                                {{ 'disabled' if sorting_state != 'idle' else '' }}>Start Sorting</button>
+                        <button type="submit" name="stop_sorting" class="btn btn-secondary" id="stopBtn"
+                                {{ 'disabled' if sorting_state != 'running' else '' }}>Stop Sorting</button>
                     </div>
 
                     <div class="stat-row">
@@ -605,7 +771,6 @@
                         <a href="{{ url_for('download_csv') }}"><button type="button" class="btn btn-tertiary">Download CSV</button></a>
                         <a href="{{ url_for('failed_gallery') }}"><button type="button" class="btn btn-tertiary">View Failed Reads</button></a>
                         <a href="{{ url_for('sensors_page') }}"><button type="button" class="btn btn-tertiary">Sensor Status</button></a>
-                        <a href="{{ url_for('logout') }}"><button type="button" class="btn btn-tertiary">Log Out</button></a>
                     </div>
 
                     <div class="card csv-group">
@@ -614,22 +779,28 @@
                             Save Card Info to CSV
                         </label>
                         <div class="csv-buttons">
-                            <button type="submit" name="clear_csv" class="btn btn-tertiary">Clear CSV</button>
-                            <button type="submit" name="clear_monthly_count" class="btn btn-tertiary">Reset Monthly Count</button>
-                            <button type="submit" name="clear_failed_count" class="btn btn-tertiary">Reset Failed Count</button>
+                            <button type="submit" name="clear_csv" class="btn btn-tertiary"
+                                    data-confirm="Clear the saved card CSV for {{ game.name }}? This can't be undone.">Clear CSV</button>
+                            <button type="submit" name="clear_monthly_count" class="btn btn-tertiary"
+                                    data-confirm="Reset the monthly processed count to 0?">Reset Monthly Count</button>
+                            <button type="submit" name="clear_failed_count" class="btn btn-tertiary"
+                                    data-confirm="Reset the failed read count to 0 and delete every saved failed-read image? This can't be undone.">Reset Failed Count</button>
                         </div>
                     </div>
 
                     <div class="card bin-count-card">
                         <div class="bin-count-header">
                             <span class="card-label" style="margin-bottom: 0;">Cards Per Bin</span>
-                            <button type="submit" name="clear_bin_counts" class="btn btn-tertiary">Clear Bin Counts</button>
+                            <button type="submit" name="clear_bin_counts" class="btn btn-tertiary"
+                                data-confirm="Clear the cards-per-bin counters?">Clear Bin Counts</button>
                         </div>
                         <div class="bin-count-grid">
                             {% for i in range(1, bin_count + 1) %}
-                            <div class="bin-count-tile"{% if bin_labels[i] %} title="{{ bin_labels[i] }}"{% endif %}>
+                            <div class="bin-count-tile{{ ' catch-all' if i == catch_all_bin else '' }}{{ ' last' if i == last_bin else '' }}"
+                                 id="binTile{{ i }}">
                                 <span class="stat-label">Bin {{ i }}</span>
                                 <span class="stat-value" id="binCount{{ i }}">{{ bin_counts.get(i, 0) }}</span>
+                                {% if bin_labels[i] %}<span class="bin-where">{{ bin_labels[i] }}</span>{% endif %}
                             </div>
                             {% endfor %}
                         </div>
@@ -654,11 +825,12 @@
 
             <div class="panel" id="panel-bins">
                 <div class="bin-setup-actions">
-                    <button type="submit" name="reset_bins" class="btn btn-secondary">Reset Bins to Default</button>
+                    <p class="bin-setup-hint">Customize each card box below — changes save automatically.
+                        Sorter: {{ design_summary }} (<a href="{{ url_for('settings') }}#design">change</a>). Cards no bin matches, and failed reads, go to the catch-all bin.</p>
                     <span class="bin-save-status" id="binSaveStatus">All changes saved</span>
+                    <button type="submit" name="reset_bins" class="btn btn-tertiary btn-reset"
+                            data-confirm="Reset every bin's criteria for {{ game.name }} to the defaults? Your current bin setup will be lost.">Reset Bins to Default</button>
                 </div>
-                <p class="bin-setup-hint">Customize each card box below — changes save automatically.
-                    Sorter: {{ design_summary }} (<a href="{{ url_for('settings') }}#design">change</a>). Cards no bin matches, and failed reads, go to the catch-all bin.</p>
                 <div class="bin-editor">
                     <div class="bin-list" id="binList">
                         {% for i in range(1, bin_count + 1) %}
@@ -676,6 +848,10 @@
                         </div>
                         {% endfor %}
                     </div>
+                    <div class="machine card">
+                        <span class="card-label">{{ 'Tower' if design.design == 'tower' else 'Ramp' }} <span class="machine-note">schematic &middot; click a bin</span></span>
+                        {% include 'machine_diagram.html' %}
+                    </div>
                 </div>
             </div>
         </form>
@@ -686,12 +862,46 @@
         let shownScannedVersion = null;
         let shownIdentifiedUrl = null;
 
+        // Reflects the sorting state from polling, so a run that stops on its
+        // own (feed failure, unsupported game) shows without a reload.
+        const RUN_LABELS = { running: "Sorting", stopping: "Stopping\u2026", idle: "Idle" };
+        function setSortingState(state) {
+            if (!RUN_LABELS[state]) return;
+            document.getElementById("runStatus").className = "run-status " + state;
+            document.getElementById("runStatusText").textContent = RUN_LABELS[state];
+            document.getElementById("startBtn").disabled = state !== "idle";
+            document.getElementById("stopBtn").disabled = state !== "running";
+            document.querySelectorAll("#gameSwitcher .game-pill:not(.active)").forEach(function (pill) {
+                pill.disabled = state !== "idle";
+                pill.title = state !== "idle" ? "Stop sorting before switching games" : "";
+            });
+        }
+
+        // Highlight the bin the last card went to, flashing it when a new card lands.
+        let shownMoves = null;
+        function showLastBin(bin, moves) {
+            document.querySelectorAll(".bin-count-tile.last").forEach(function (tile) {
+                if (tile.id !== "binTile" + bin) tile.classList.remove("last");
+            });
+            const tile = bin ? document.getElementById("binTile" + bin) : null;
+            if (tile) {
+                tile.classList.add("last");
+                if (shownMoves !== null && moves !== shownMoves) {
+                    tile.classList.remove("flash");
+                    void tile.offsetWidth;  // restart the animation
+                    tile.classList.add("flash");
+                }
+            }
+            shownMoves = moves;
+        }
+
         function updateCounts() {
             if (paused) return;
 
             fetch("/get_move_count")
                 .then(response => response.json())
                 .then(data => {
+                    setSortingState(data.sorting_state);
                     document.getElementById("moveCountDisplay").innerText = data.moves;
                     document.getElementById("monthlyCountDisplay").innerText = data.monthly_moves;
                     document.getElementById("failedReadsDisplay").innerText = data.failed_reads;
@@ -725,6 +935,7 @@
                             if (binEl) binEl.innerText = data.bin_counts[i] ?? 0;
                         }
                     }
+                    showLastBin(data.last_bin, data.moves);
                 })
                 .catch(error => console.error("Error fetching counts:", error));
         }
@@ -794,8 +1005,14 @@
         document.addEventListener("visibilitychange", syncScanView);
         syncScanView();
 
+        // Destructive buttons carry data-confirm; nothing is sent unless confirmed.
         // Pause polling on button press
         document.querySelector("form").addEventListener("submit", function(e) {
+            const question = e.submitter && e.submitter.dataset.confirm;
+            if (question && !confirm(question)) {
+                e.preventDefault();
+                return;
+            }
             if (e.submitter && e.submitter.name === "clear_failed_count") {
                 paused = true;
                 setTimeout(() => paused = false, 3000);
@@ -813,6 +1030,9 @@
                 document.getElementById("panel-live").classList.toggle("active", target === "live");
                 document.getElementById("panel-bins").classList.toggle("active", target === "bins");
                 syncScanView();
+                // Keep the address on this tab: the page's buttons post back to it,
+                // and the reloaded page opens whichever tab the address names.
+                history.replaceState(null, "", target === "bins" ? "/?tab=bins" : "/");
             });
         });
 
@@ -852,8 +1072,33 @@
                 document.querySelectorAll(".bin-fields").forEach(function (fields) {
                     fields.classList.toggle("active", fields.getAttribute("data-bin-fields") === bin);
                 });
+                showMachineBin(bin);
             });
         });
+
+        // Machine schematic: highlight the selected bin and tip the flapper that
+        // reaches it; clicking a bin in the schematic selects it in the list.
+        function showMachineBin(bin) {
+            document.querySelectorAll("#machine .mflap").forEach(f => f.classList.remove("tip-left", "tip-right"));
+            document.querySelectorAll("#machine .mbin").forEach(function (g) {
+                const selected = g.dataset.bin === String(bin);
+                g.classList.toggle("selected", selected);
+                if (selected && g.dataset.flap) {
+                    document.querySelector('#machine .mflap[data-flap="' + g.dataset.flap + '"]')
+                        .classList.add("tip-" + g.dataset.side);
+                }
+            });
+        }
+        document.querySelectorAll("#machine .mbin").forEach(function (g) {
+            g.addEventListener("click", function () {
+                const item = document.querySelector('#binList .bin-list-item[data-bin="' + g.dataset.bin + '"]');
+                if (item) {
+                    item.click();
+                    item.scrollIntoView({ block: "nearest" });
+                }
+            });
+        });
+        showMachineBin(1);
 
         // Bin Setup autosave — each field POSTs to /update_bin_criteria on its own,
         // so no "Set Bins" submit button is needed.
@@ -868,6 +1113,8 @@
 
         // The server builds the summary from the game's filter definitions.
         function updateBinSummary(binIndex, summary) {
+            const machineBin = document.querySelector('#machine .mbin[data-bin="' + binIndex + '"]');
+            if (machineBin) machineBin.classList.toggle("empty", !summary);  // dashed when nothing is set
             const summaryEl = document.querySelector('.bin-list-item[data-bin="' + binIndex + '"] .bin-list-summary');
             if (!summaryEl) return;
             summaryEl.textContent = summary || "No criteria set";

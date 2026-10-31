@@ -6,6 +6,9 @@
     <title>Calibrate {{ page_design|title }} Flappers</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
     <style>
         :root {
             --left-colour: #3498db;
@@ -13,20 +16,20 @@
             --right-colour: #e67e22;
             --open-colour: #e67e22;
             --close-colour: #2ecc71;
-            --error-colour: #c0392b;
+            --error-colour: var(--danger);
         }
         * {
             box-sizing: border-box;
         }
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f5f7fa;
+            background-color: var(--bg);
             margin: 0;
             padding: 12px 16px;
-            color: #333;
+            color: var(--text);
         }
         h1, h2 {
-            color: #2c3e50;
+            color: var(--ink);
             margin: 0;
         }
         h1 {
@@ -36,29 +39,19 @@
             font-size: 1.15rem;
         }
         .hint {
-            color: #666;
+            color: var(--muted);
             font-size: 0.85em;
             font-weight: 400;
         }
-        .topbar {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-bottom: 12px;
-        }
-        .topbar h1 {
-            margin-right: auto;
-        }
         .panel {
-            background-color: #fff;
+            background-color: var(--card-bg);
             padding: 12px 14px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px var(--card-shadow);
         }
         button {
             padding: 10px 18px;
-            background-color: #3498db;
+            background-color: var(--accent);
             color: white;
             border: none;
             border-radius: 5px;
@@ -66,17 +59,17 @@
             font: inherit;
         }
         button:hover {
-            background-color: #2980b9;
+            background-color: var(--accent-hover);
         }
         button:disabled {
             opacity: 0.55;
             cursor: wait;
         }
         button.secondary {
-            background-color: #7f8c8d;
+            background-color: var(--quiet-btn);
         }
         button.secondary:hover {
-            background-color: #6c7a7b;
+            background-color: var(--quiet-btn-hover);
         }
         .card-actions {
             display: flex;
@@ -96,7 +89,7 @@
             margin-left: auto;
             font-size: 0.95rem;
             font-weight: 700;
-            color: #2c3e50;
+            color: var(--ink);
         }
         .deposit {
             margin-bottom: 12px;
@@ -138,7 +131,7 @@
             margin: 0 0 12px;
             padding: 10px 14px;
             border-radius: 8px;
-            background: #fdf2d0;
+            background: var(--highlight-bg);
         }
         /* Up to 15 levels: four panels a row on a 1080p screen */
         .flappers {
@@ -146,6 +139,9 @@
             grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
             gap: 12px;
             margin-bottom: 12px;
+        }
+        .flapper.card-servo {
+            border-top: 3px solid var(--quiet-btn);
         }
         .flapper-body {
             display: grid;
@@ -163,19 +159,19 @@
             font-size: 0.85rem;
             padding: 3px 10px;
             border-radius: 999px;
-            background: #ecf0f1;
-            color: #555;
+            background: var(--tile-bg);
+            color: var(--muted);
             white-space: nowrap;
         }
         .badge.ok {
-            background: color-mix(in srgb, var(--swatch, #2ecc71) 18%, white);
-            color: #2c3e50;
+            background: color-mix(in srgb, var(--swatch, #2ecc71) 18%, var(--card-bg));
+            color: var(--ink);
         }
         .badge.busy {
-            background: #fdf2d0;
+            background: var(--highlight-bg);
         }
         .badge.error {
-            background: #fadbd8;
+            background: var(--danger-soft-bg);
             color: var(--error-colour);
         }
         .dial {
@@ -185,7 +181,7 @@
         }
         .dial .track {
             fill: none;
-            stroke: #dcdcdc;
+            stroke: var(--border-strong);
             stroke-width: 2;
         }
         .dial .arm {
@@ -207,11 +203,11 @@
             padding: 4px 6px;
             margin-top: 5px;
             border-radius: 8px;
-            border: 1px solid #dcdcdc;
+            border: 1px solid var(--border);
             border-left: 6px solid var(--swatch);
         }
         .pos-row.active {
-            background: color-mix(in srgb, var(--swatch) 12%, white);
+            background: color-mix(in srgb, var(--swatch) 12%, var(--card-bg));
             border-color: var(--swatch);
         }
         .pos-row .move {
@@ -231,11 +227,11 @@
         .pos-row .nudge {
             padding: 7px 0;
             min-width: 34px;
-            background-color: #ecf0f1;
-            color: #2c3e50;
+            background-color: var(--tile-bg);
+            color: var(--ink);
         }
         .pos-row .nudge:hover {
-            background-color: #dde3e6;
+            background-color: var(--tile-hover);
         }
         .degrees {
             display: flex;
@@ -246,7 +242,9 @@
             width: 100%;
             min-width: 0;
             padding: 6px 2px;
-            border: 2px solid #ccc;
+            border: 2px solid var(--input-border);
+            background-color: var(--input-bg);
+            color: var(--text);
             border-radius: 4px;
             font: inherit;
             font-size: 1rem;
@@ -254,7 +252,7 @@
         }
         .degrees input.unsaved {
             border-color: #f1c40f;
-            background: #fffbea;
+            background: var(--highlight-bg);
         }
         .log {
             margin: 6px 0 0;
@@ -267,14 +265,14 @@
         }
         .log li {
             padding: 2px 0;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid var(--border);
             white-space: pre-wrap;
         }
         .log li.error {
             color: var(--error-colour);
         }
         .log .time {
-            color: #999;
+            color: var(--muted);
         }
         @media (max-width: 480px) {
             .flappers {
@@ -290,12 +288,15 @@
     </style>
 </head>
 <body>
-    <div class="topbar">
-        <h1>Calibrate {{ page_design|title }} Flappers
-            <span class="hint">{% if page_design == 'tower' %}{{ design.tower_levels }} level{{ 's' if design.tower_levels != 1 else '' }} · flapper 1 is the top{% else %}flappers 1–9 · bin 10 is the catch-all{% endif %}</span></h1>
-        <a href="{{ url_for('sensors_page') }}"><button type="button" class="secondary">Sensor Status</button></a>
-        <a href="{{ url_for('settings') }}#design"><button type="button" class="secondary">Back to Settings</button></a>
-    </div>
+    {% set page_title = "Calibrate %s Flappers" % (page_design|title) %}
+    {% if page_design == 'tower' %}
+    {% set page_subtitle = "%d level%s · flapper 1 is the top" % (design.tower_levels, '' if design.tower_levels == 1 else 's') %}
+    {% else %}
+    {% set page_subtitle = "flappers 1–9 · bin 10 is the catch-all" %}
+    {% endif %}
+    {% set nav_parent = "settings" %}
+    {% set top_links = [("Sensor Status", url_for('sensors_page'))] %}
+    {% include 'top_bar.html' %}
 
     <div class="panel card-actions">
         <button type="button" id="feedBtn">Feed Card</button>
@@ -317,7 +318,7 @@
         <div class="bin-buttons">
             {% for b in deposit_bins %}
             <button type="button" data-bin="{{ b.num }}"
-                    style="--swatch: {{ '#7f8c8d' if b.kind == 'catch-all' else 'var(--%s-colour)' % b.kind }}">Bin {{ b.num }}{% if b.label %}<small>{{ b.label }}</small>{% endif %}</button>
+                    style="--swatch: {{ 'var(--quiet-btn)' if b.kind == 'catch-all' else 'var(--%s-colour)' % b.kind }}">Bin {{ b.num }}{% if b.label %}<small>{{ b.label }}</small>{% endif %}</button>
             {% endfor %}
         </div>
     </div>
@@ -329,7 +330,7 @@
 
     <div class="flappers" data-design="{{ page_design }}" data-rest="{{ rest_position }}">
         {% for panel in panels %}
-        <div class="panel flapper" data-servo="{{ panel.key }}">
+        <div class="panel flapper{{ ' card-servo' if panel.key == 'card_servo' else '' }}" data-servo="{{ panel.key }}">
             <div class="flapper-head">
                 <h2>{{ panel.title }}</h2>
                 <span class="hint">{{ panel.hint }}</span>
@@ -342,7 +343,7 @@
                     <line class="arm" data-position="{{ p.id }}" x1="0" y1="0" x2="0" y2="-100"
                           style="stroke: var(--{{ p.id }}-colour)"></line>
                     {% endfor %}
-                    <circle cx="0" cy="0" r="12" fill="#2c3e50"></circle>
+                    <circle cx="0" cy="0" r="12" style="fill: var(--ink)"></circle>
                 </svg>
                 <div>
                     {% for p in panel.positions %}
@@ -415,6 +416,7 @@
 
             const onRest = [];  // each flapper panel's "now at its saved rest position" update
             const restAll = () => onRest.forEach(fn => fn());
+            let cardServoClosed = function () {};  // set by the card servo panel
 
             function cardAction(button, url, busyText, doneText, onSuccess) {
                 button.addEventListener("click", async function () {
@@ -438,7 +440,8 @@
             }
 
             cardAction(document.getElementById("feedBtn"), "/api/servo_test/feed", "Feeding…", "Card fed.");
-            cardAction(document.getElementById("releaseBtn"), "/api/servo_test/release", "Releasing…", "Card released.");
+            cardAction(document.getElementById("releaseBtn"), "/api/servo_test/release", "Releasing…", "Card released.",
+                       () => cardServoClosed());
             cardAction(document.getElementById("restAllBtn"), "/api/servo_test/" + DESIGN + "/rest", "Moving…",
                        "All flappers moved to " + REST + ".", restAll);
 
@@ -456,6 +459,7 @@
                         cardStatus.textContent = "Deposited into bin " + bin + ".";
                         log(what + " done.");
                         restAll();  // the cycle ends with every flapper back at rest
+                        cardServoClosed();  // ...and the card servo closed
                     } catch (e) {
                         cardStatus.textContent = what + " failed: " + e.message;
                         log(what + " failed: " + e.message + (e.output ? "\n" + e.output.trim() : ""), true);
@@ -562,12 +566,18 @@
                     });
                 });
 
-                // Close All / Center All moves to the saved rest degrees.
-                onRest.push(function () {
-                    active = REST;
-                    setBadge(label(REST) + " · " + input(REST).dataset.saved + "°", "ok", REST);
+                function showAt(position) {
+                    active = position;
+                    setBadge(label(position) + " · " + input(position).dataset.saved + "°", "ok", position);
                     drawDial();
-                });
+                }
+                if (servo === "card_servo") {
+                    // Release Card and Test Deposit end with the card servo closed;
+                    // Close All / Center All only move the flappers.
+                    cardServoClosed = () => showAt("close");
+                } else {
+                    onRest.push(() => showAt(REST));  // Close All / Center All: saved rest degrees
+                }
 
                 drawDial();
             });

@@ -6,13 +6,15 @@
     <title>{{ 'Set Up Password' if first_run else 'Log In' }}</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
     <style>
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f5f7fa;
+            background-color: var(--bg);
             margin: 0;
             padding: 20px;
-            color: #333;
+            color: var(--text);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -20,17 +22,17 @@
             box-sizing: border-box;
         }
         h1 {
-            color: #2c3e50;
+            color: var(--ink);
             text-align: center;
         }
         form {
             max-width: 360px;
             width: 100%;
             margin: auto;
-            background-color: #fff;
+            background-color: var(--card-bg);
             padding: 25px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px var(--card-shadow);
         }
         label {
             display: block;
@@ -41,7 +43,9 @@
             width: 100%;
             padding: 8px;
             margin-top: 5px;
-            border: 1px solid #ccc;
+            border: 1px solid var(--input-border);
+            background-color: var(--input-bg);
+            color: var(--text);
             border-radius: 4px;
             box-sizing: border-box;
         }
@@ -50,13 +54,13 @@
             font-size: 0.9rem;
         }
         p.error {
-            color: #c0392b;
+            color: var(--danger);
             font-weight: 500;
         }
         button {
             width: 100%;
             padding: 10px 16px;
-            background-color: #3498db;
+            background-color: var(--accent);
             color: white;
             border: none;
             border-radius: 5px;
@@ -65,7 +69,7 @@
             font-size: 1rem;
         }
         button:hover {
-            background-color: #2980b9;
+            background-color: var(--accent-hover);
         }
     </style>
 </head>

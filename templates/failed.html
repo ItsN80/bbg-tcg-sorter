@@ -5,17 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Failed Reads</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f9f9fb;
-            padding: 20px;
-            color: #333;
+            background-color: var(--bg);
+            margin: 0;
+            padding: 14px 20px 20px;
+            color: var(--text);
             box-sizing: border-box;
         }
         h1 {
             text-align: center;
-            color: #2c3e50;
+            color: var(--ink);
         }
         .failed-pair {
             display: flex;
@@ -23,14 +27,14 @@
             align-items: flex-start;
             margin-bottom: 30px;
             gap: 20px;
-            background: #fff;
+            background: var(--card-bg);
             padding: 15px;
             border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 8px var(--card-shadow);
         }
         .failed-pair img {
             max-width: 300px;
-            border: 1px solid #ccc;
+            border: 1px solid var(--border);
             border-radius: 5px;
         }
         .label {
@@ -43,8 +47,8 @@
             min-width: 320px;
         }
         pre {
-            background: #f3f4f6;
-            border: 1px solid #ddd;
+            background: var(--subtle-bg);
+            border: 1px solid var(--border);
             border-radius: 6px;
             padding: 10px;
             overflow-x: auto;
@@ -54,7 +58,7 @@
         }
         .timestamp {
             font-size: 0.9rem;
-            color: #555;
+            color: var(--muted);
             margin-bottom: 10px;
         }
         @media (max-width: 420px) {
@@ -69,15 +73,9 @@
     </style>
 </head>
 <body>
-    <h1>Failed Reads Gallery</h1>
-
-    <div style="text-align: center; margin: 20px;">
-    <a href="{{ url_for('index') }}">
-        <button style="padding: 10px 20px; font-size: 1rem; border: none; border-radius: 5px; background-color: #3498db; color: white; cursor: pointer;">
-            Return to Main Screen
-        </button>
-    </a>
-</div>
+    {% set page_title = "Failed Reads Gallery" %}
+    {% set nav_parent = "live" %}
+    {% include 'top_bar.html' %}
 
     {% for entry in entries %}
     <div class="failed-pair">

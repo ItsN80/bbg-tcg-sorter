@@ -1,0 +1,17 @@
+{# Top bar for the tool pages, matching Live Sorting / Settings: the page title
+   on the left; links to the main pages, the theme switch and Log Out on the
+   right. Before including, set page_title, and optionally page_subtitle,
+   nav_parent ("live" or "settings": the main page this one belongs to) and
+   top_links (extra (label, url) links shown first). Styled in static/site.css. #}
+<header class="site-top-bar">
+    <h1 class="site-title">{{ page_title }}{% if page_subtitle %} <span class="site-subtitle">{{ page_subtitle }}</span>{% endif %}</h1>
+    <nav class="site-nav">
+        {% for label, url in top_links or [] %}
+        <a href="{{ url }}" class="site-pill extra">{{ label }}</a>
+        {% endfor %}
+        <a href="{{ url_for('index') }}" class="site-pill{{ ' active' if nav_parent == 'live' else '' }}">Live Sorting</a>
+        <a href="{{ url_for('index') }}?tab=bins" class="site-pill">Bin Setup</a>
+        <a href="{{ url_for('settings') }}" class="site-pill{{ ' active' if nav_parent == 'settings' else '' }}">Settings</a>
+        {% include 'nav_icons.html' %}
+    </nav>
+</header>

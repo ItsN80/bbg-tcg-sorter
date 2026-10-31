@@ -1,0 +1,56 @@
+/* The tool pages' top bar (templates/top_bar.html), shaped like the Live
+   Sorting / Settings top bar. Colours come from theme.css. */
+.site-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.site-title {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--ink);
+}
+.site-subtitle {
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: var(--muted);
+}
+.site-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.site-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    background: var(--tile-bg);
+    color: var(--muted);
+    border: 1.5px solid transparent;
+    transition: background-color 0.15s;
+}
+.site-pill:hover {
+    background: var(--tile-hover);
+}
+/* The main page this tool page belongs to */
+.site-pill.active {
+    background: var(--selected-bg);
+    color: var(--selected-ink);
+}
+/* Page-specific extra links, before the main pages */
+.site-pill.extra {
+    background: transparent;
+    border-color: var(--border);
+}
+.site-pill.extra:hover {
+    background: var(--tile-bg);
+}

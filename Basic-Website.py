@@ -77,6 +77,7 @@ card_identified_set = ""
 card_identified_collector_number = ""
 do_credits = None  # Cached remaining_credits from DO Serverless backend
 bin_counts = {i: 0 for i in range(1, sorter_design.MAX_BIN_COUNT + 1)}  # In-memory only; resets on restart.
+last_bin = None  # Bin the most recent card went to (highlighted on Live Sorting)
 
 # Initialize pigpio globally
 pi = pigpio.pi()
@@ -340,6 +341,16 @@ def load_game_state(requested_id=None):
 with lock:
     load_game_state()
 
+@app.template_filter("thousands")
+def thousands(value):
+    """12345 -> "12,345", matching the browser's toLocaleString() that
+    refreshes the number afterwards, so it doesn't change on the first update."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    if isinstance(value, float) and not value.is_integer():
+        return f"{value:,.3f}".rstrip("0").rstrip(".")  # toLocaleString keeps up to 3 decimals
+    return f"{int(value):,}"
+
 def card_display(game, card):
     """The name / set / number / image shown on the Live Sorting tab, using the
     card keys named in the game's "display" block."""
@@ -513,7 +524,7 @@ def deliver_card(design, selected_box):
 
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count, do_credits
-    global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts
+    global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts, last_bin
     # The LEDs light the card for the camera, so they stay at the configured
     # colour the whole time (no status colours, which would tint the scans).
     _live_config = read_config()
@@ -563,6 +574,7 @@ def sorting_loop():
                     move_count += 1
                     monthly_move_count += 1
                     bin_counts[_catch_all] += 1
+                    last_bin = _catch_all
                 save_move_count(move_count)
                 save_monthly_move_count(monthly_move_count)
                 break
@@ -703,6 +715,7 @@ def sorting_loop():
             monthly_move_count += 1
             if selected_box is not None:
                 bin_counts[selected_box] += 1
+                last_bin = selected_box
         save_move_count(move_count)
         save_monthly_move_count(monthly_move_count)
         if _is_do:
@@ -711,6 +724,14 @@ def sorting_loop():
                 with stats_lock:
                     do_credits = _bal
         time.sleep(0.5)
+
+def sorting_state():
+    """"running", "stopping" (Stop was pressed and the last card is still
+    being released) or "idle"."""
+    if sorting_active:
+        return "running"
+    thread = sorting_thread
+    return "stopping" if thread is not None and thread.is_alive() else "idle"
 
 PUBLIC_ENDPOINTS = {"login", "static"}
 
@@ -768,9 +789,8 @@ def logout():
 def index():
     global move_count, monthly_move_count, sorting_active, failed_read_count
     global sorting_thread, box_criteria, csv_enabled, card_identified_url
-    global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts
+    global card_identified_name, card_identified_set, card_identified_collector_number, bin_counts, last_bin
 
-    error = None
     cards = {}
 
     if request.method == "POST":
@@ -780,9 +800,10 @@ def index():
         if "start_sorting" in request.form:
             # Refuse up front if the provider can't recognize the active game
             # (e.g. a custom pack with the hosted DO Serverless service).
+            # The page shows the same message as a banner, so no error is passed on.
             with lock:
-                error = games.unsupported_provider_message(active_game, read_config())
-                should_start = not sorting_active and not error
+                refusal = games.unsupported_provider_message(active_game, read_config())
+                should_start = not sorting_active and not refusal
                 if should_start:
                     sorting_active = True
             if should_start:
@@ -841,10 +862,13 @@ def index():
         elif "clear_bin_counts" in request.form:
             with stats_lock:
                 bin_counts = {i: 0 for i in range(1, sorter_design.MAX_BIN_COUNT + 1)}
+                last_bin = None
             print("Bin counters reset to 0.")
 
+        # Post/redirect/get: back to this page (and tab) as a plain GET, so a
+        # browser refresh can't run the button again.
+        return redirect(url_for("index", **request.args))
 
-    # GET or POST: Always render the index
     with stats_lock:
         _moves = move_count
         _monthly = monthly_move_count
@@ -854,8 +878,10 @@ def index():
         _card_set = card_identified_set
         _card_collector = card_identified_collector_number
         _bin_counts = dict(bin_counts)
+        _last_bin = last_bin
     with lock:
         _sorting_active = sorting_active
+        _sorting_state = sorting_state()
         _box_criteria = box_criteria
         _game = active_game
         _games = list(game_registry.values())
@@ -872,8 +898,8 @@ def index():
         moves=_moves,
         monthly_moves=_monthly,
         cards=cards,
-        error=error,
         sorting_active=_sorting_active,
+        sorting_state=_sorting_state,
         box_criteria=_box_criteria,
         csv_enabled=csv_enabled,
         card_identified_url=_url,
@@ -883,9 +909,12 @@ def index():
         card_identified_set=_card_set,
         card_identified_collector_number=_card_collector,
         bin_counts=_bin_counts,
+        last_bin=_last_bin,
+        catch_all_bin=sorter_design.catch_all_bin(_design),
         bin_count=_bin_count,
         bin_labels={i: sorter_design.bin_label(_design, i) for i in range(1, _bin_count + 1)},
         design_summary=sorter_design.describe(_design),
+        design=_design,
     )
 
 @app.route("/get_move_count", methods=["GET"])
@@ -900,6 +929,7 @@ def get_move_count_route():
         _card_set = card_identified_set
         _card_collector = card_identified_collector_number
         _bin_counts = dict(bin_counts)
+        _last_bin = last_bin
     try:
         # Lets the page reload the (~100 KB) scanned image only when it changed.
         _scanned_version = os.stat(SCANNED_IMAGE_DEST).st_mtime_ns
@@ -917,6 +947,8 @@ def get_move_count_route():
         "card_identified_set": _card_set,
         "card_identified_collector_number": _card_collector,
         "bin_counts": _bin_counts,
+        "last_bin": _last_bin,
+        "sorting_state": sorting_state(),
     })
 
 @app.route("/update_bin_criteria", methods=["POST"])
@@ -1156,6 +1188,7 @@ def render_settings(config, error=None, games_message=None):
         game_prompt=games.game_settings(config, _game["id"]).get("prompt")
             or (config.get("ollama", {}).get("prompt", "") if _game["id"] == games.DEFAULT_GAME_ID else ""),
         games_message=games_message,
+        saved=session.pop("settings_saved", False),
         design=read_design(config),
         max_tower_levels=sorter_design.MAX_TOWER_LEVELS,
     )
@@ -1229,12 +1262,6 @@ def settings():
             config["smtp"]["from_email"] = request.form.get("smtp_from", "")
             config["smtp"]["to_email"] = request.form.get("smtp_to", "")
             config["smtp"]["enabled"] = True if request.form.get("smtp_enabled") else False
-            open_val = request.form.get("card_servo_open_degrees", "")
-            close_val = request.form.get("card_servo_close_degrees", "")
-            if open_val != "":
-                config["card_servo"]["open_degrees"] = int(open_val)
-            if close_val != "":
-                config["card_servo"]["close_degrees"] = int(close_val)
             if "feed" not in config or not isinstance(config["feed"], dict):
                 config["feed"] = {}
             motor2_extra = request.form.get("motor2_extra_feed_sec", "").strip()
@@ -1300,7 +1327,9 @@ def settings():
                     return render_settings(config, error)
                 config["sorter"] = new_design
             if write_config(config):
-                return redirect(url_for("index"))
+                # Stay on Settings; the message shows once (a refresh won't repeat it).
+                session["settings_saved"] = True
+                return redirect(url_for("settings"))
             else:
                 error = "Failed to save configuration."
                 return render_settings(config, error)
@@ -1619,11 +1648,23 @@ def calibration_flappers(design_name, design):
         return sorter_design.tower_flappers(design)
     return sorter_design.RAMP_FLAPPERS
 
+CARD_SERVO_POSITIONS = ("open", "close")  # the same card servo on either design
+
 def calibration_panels(design_name, config):
-    """One panel per flapper for the calibration page. Degrees are saved under
-    flappers.<key>.<position>_degrees, which servo_controller.py reads."""
+    """The card servo, then one panel per flapper, for the calibration page.
+    Degrees are saved under card_servo / flappers.<key> as <position>_degrees,
+    which servo_controller.py reads."""
     flappers = config.get("flappers", {})
-    panels = []
+    card_servo = config.get("card_servo", {})
+    panels = [{
+        "key": "card_servo",
+        "title": "Card Servo",
+        "hint": f"channel {card_servo.get('channel', 9)} · releases the card",
+        "positions": [
+            {"id": p, "sub": sub, "degrees": card_servo.get(f"{p}_degrees", CALIBRATION_DEFAULT_DEGREES[p])}
+            for p, sub in (("open", "release"), ("close", "hold card"))
+        ],
+    }]
     for n, key in enumerate(calibration_flappers(design_name, read_design(config)), start=1):
         channel = flappers.get(key, {}).get("channel", sorter_design.default_flapper_channel(n))
         if design_name == sorter_design.TOWER:
@@ -1695,9 +1736,14 @@ def api_servo_test_move():
     design_name = payload.get("design")
     servo_key = payload.get("servo")
     position = payload.get("position")
-    if (design_name not in CALIBRATION_POSITIONS
-            or servo_key not in calibration_flappers(design_name, read_design())
-            or position not in CALIBRATION_POSITIONS[design_name]):
+    if design_name not in CALIBRATION_POSITIONS:
+        return jsonify({"success": False, "error": "Unknown servo or position."}), 400
+    if servo_key == "card_servo":
+        valid = position in CARD_SERVO_POSITIONS
+    else:
+        valid = (servo_key in calibration_flappers(design_name, read_design())
+                 and position in CALIBRATION_POSITIONS[design_name])
+    if not valid:
         return jsonify({"success": False, "error": "Unknown servo or position."}), 400
     try:
         degrees = int(payload.get("degrees"))
@@ -1713,7 +1759,10 @@ def api_servo_test_move():
         return jsonify({"success": False, "error": "Servos are busy, try again."}), 409
     try:
         config = read_config()
-        config.setdefault("flappers", {}).setdefault(servo_key, {})[f"{position}_degrees"] = degrees
+        if servo_key == "card_servo":
+            config.setdefault("card_servo", {})[f"{position}_degrees"] = degrees
+        else:
+            config.setdefault("flappers", {}).setdefault(servo_key, {})[f"{position}_degrees"] = degrees
         if not write_config(config):
             return jsonify({"success": False, "error": "Failed to save configuration."}), 500
         run_servo(servo_key, position)

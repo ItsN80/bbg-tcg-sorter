@@ -6,6 +6,9 @@
     <title>Camera Testing</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
     <style>
         :root {
             --card-colour: #2ecc71;
@@ -16,14 +19,14 @@
         }
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f5f7fa;
+            background-color: var(--bg);
             margin: 0;
             padding: 12px 16px;
-            color: #333;
+            color: var(--text);
         }
         h1, h2 {
             text-align: center;
-            color: #2c3e50;
+            color: var(--ink);
             margin: 0;
         }
         h1 {
@@ -47,10 +50,10 @@
             align-items: start;
         }
         .panel {
-            background-color: #fff;
+            background-color: var(--card-bg);
             padding: 12px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px var(--card-shadow);
         }
         .controls {
             display: flex;
@@ -60,8 +63,8 @@
         .section {
             padding: 10px 12px;
             border-radius: 8px;
-            background-color: #fdfdfd;
-            border: 1px solid #dcdcdc;
+            background-color: var(--subtle-bg);
+            border: 1px solid var(--border);
             border-left: 5px solid var(--swatch);
         }
         .section h2 {
@@ -81,7 +84,9 @@
             width: 100%;
             padding: 6px;
             margin-top: 3px;
-            border: 1px solid #ccc;
+            border: 1px solid var(--input-border);
+            background-color: var(--input-bg);
+            color: var(--text);
             border-radius: 4px;
         }
         .form-actions {
@@ -91,21 +96,21 @@
         }
         button {
             padding: 10px 20px;
-            background-color: #3498db;
+            background-color: var(--accent);
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
         }
         button:hover {
-            background-color: #2980b9;
+            background-color: var(--accent-hover);
         }
         img {
             display: block;
             max-width: 100%;
             margin: 0 auto;
             border-radius: 8px;
-            border: 1px solid #ccc;
+            border: 1px solid var(--border);
         }
         /* Header + padding + panel title take ~140px; the photos get the rest */
         .photo {
@@ -113,7 +118,7 @@
         }
         .hint {
             text-align: center;
-            color: #666;
+            color: var(--muted);
             font-size: 0.85em;
             margin: 0 0 6px;
         }
@@ -149,7 +154,9 @@
     </style>
 </head>
 <body>
-    <h1>Camera Testing</h1>
+    {% set page_title = "Camera Testing" %}
+    {% set nav_parent = "settings" %}
+    {% include 'top_bar.html' %}
 
     {% if error %}
         <p class="error">{{ error }}</p>
@@ -180,7 +187,6 @@
 
             <div class="form-actions">
                 <button type="submit">Capture & Save Crops</button>
-                <a href="{{ url_for('settings') }}"><button type="button">Back to Settings</button></a>
             </div>
 
             <div class="panel">

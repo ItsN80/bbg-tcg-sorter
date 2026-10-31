@@ -4,20 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sensor Status</title>
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 30px; background:#111; color:#eee; box-sizing: border-box; }
-    h1 { font-size: 48px; margin: 0 0 20px; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 14px 20px 20px; background: var(--bg); color: var(--text); box-sizing: border-box; }
     .wrap { display:flex; gap:20px; flex-wrap:wrap; }
     .card {
       flex: 1 1 420px;
       border-radius: 16px;
       padding: 24px;
-      border: 2px solid #333;
-      background: #1b1b1b;
+      border: 2px solid var(--border);
+      background: var(--card-bg);
       box-sizing: border-box;
     }
-    .title { font-size: 34px; margin: 0 0 8px; }
-    .pin { font-size: 24px; opacity: .85; margin-bottom: 16px; }
+    .title { font-size: 34px; margin: 0 0 8px; color: var(--ink); }
+    .pin { font-size: 24px; color: var(--muted); margin-bottom: 16px; }
     .state {
       font-size: 72px;
       font-weight: 900;
@@ -27,10 +30,9 @@
     }
     .clear { background:#0b3; color:#001; }
     .trig { background:#c22; color:#200; }
-    .raw { font-size: 20px; opacity: .8; margin-top: 12px; text-align:center; }
+    .raw { font-size: 20px; color: var(--muted); margin-top: 12px; text-align:center; }
     @media (max-width: 480px) {
       body { padding: 16px; }
-      h1 { font-size: 32px; }
       .card { padding: 16px; flex-basis: 100%; }
       .title { font-size: 26px; }
       .pin { font-size: 18px; }
@@ -40,14 +42,9 @@
   </style>
 </head>
 <body>
-  <h1>IR Sensor Status</h1>
-  <div style="margin: 0 0 20px;">
-    <a href="/" style="text-decoration:none;">
-      <button style="font-size:22px; padding:12px 18px; border-radius:12px; cursor:pointer;">
-        ⬅ Back to Home
-      </button>
-    </a>
-  </div>
+  {% set page_title = "IR Sensor Status" %}
+  {% set nav_parent = "live" %}
+  {% include 'top_bar.html' %}
 
 
   <div class="wrap">

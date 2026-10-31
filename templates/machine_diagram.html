@@ -1,0 +1,45 @@
+{# Schematic of the sorter for Bin Setup: the card drops in at the top, past
+   one flapper per level (tower) or per bin (ramp), into the bins; the
+   catch-all is at the bottom. Bins carry data-flap / data-side so the page
+   can tip the flapper that reaches the selected bin (see index.html).
+   Needs design, bin_count, bin_labels and bin_summaries. #}
+{% set tower = design.design == 'tower' %}
+{% set rows = design.tower_levels if tower else bin_count - 1 %}
+{% set row_h = 56 if tower else 46 %}
+{% set shaft_x = 150 if tower else 65 %}
+{% set catch_y = 60 + rows * row_h + 6 %}
+<svg id="machine" class="machine-svg" viewBox="0 0 300 {{ catch_y + 40 }}" preserveAspectRatio="xMidYMin meet" role="img"
+     aria-label="{{ 'Tower' if tower else 'Ramp' }} schematic with bins {{ 1 }} to {{ bin_count }}">
+    <rect class="mfeed" x="{{ shaft_x - 45 }}" y="4" width="90" height="26" rx="6"></rect>
+    <text class="mfeed-text" x="{{ shaft_x }}" y="21">Card in</text>
+    <line class="mshaft" x1="{{ shaft_x - 18 }}" y1="34" x2="{{ shaft_x - 18 }}" y2="{{ catch_y }}"></line>
+    <line class="mshaft" x1="{{ shaft_x + 18 }}" y1="34" x2="{{ shaft_x + 18 }}" y2="{{ catch_y }}"></line>
+
+    {% for row in range(1, rows + 1) %}
+    {% set yc = 60 + (row - 0.5) * row_h %}
+    {% if tower %}
+    <text class="mlevel" x="{{ shaft_x }}" y="{{ yc - 20 }}">L{{ row }}</text>
+    {% set sides = [(2 * row - 1, 'left', 8), (2 * row, 'right', 178)] %}
+    {% else %}
+    {% set sides = [(row, 'right', 110)] %}
+    {% endif %}
+    {% for num, side, x in sides %}
+    {% set width = 114 if tower else 180 %}
+    <g class="mbin{{ '' if bin_summaries.get(num) else ' empty' }}" data-bin="{{ num }}" data-flap="{{ row }}" data-side="{{ side }}">
+        <title>Bin {{ num }}{% if bin_labels[num] %} · {{ bin_labels[num] }}{% endif %}: {{ bin_summaries.get(num) or 'No criteria set' }}</title>
+        <rect x="{{ x }}" y="{{ yc - 16 }}" width="{{ width }}" height="32" rx="6"></rect>
+        <text x="{{ x + width / 2 }}" y="{{ yc + 4 }}">Bin {{ num }}</text>
+    </g>
+    {% endfor %}
+    {# The flapper: upright lets the card pass; tipped, it slides the card out. #}
+    <line class="mflap" data-flap="{{ row }}" x1="{{ shaft_x }}" y1="{{ yc - 14 }}" x2="{{ shaft_x }}" y2="{{ yc + 14 }}"></line>
+    <circle class="mpivot" cx="{{ shaft_x }}" cy="{{ yc }}" r="3"></circle>
+    {% endfor %}
+
+    <g class="mbin catch-all{{ '' if bin_summaries.get(bin_count) else ' empty' }}" data-bin="{{ bin_count }}">
+        <title>Bin {{ bin_count }} · Catch-all: {{ bin_summaries.get(bin_count) or 'No criteria set' }}; also failed reads and unmatched cards</title>
+        <rect x="{{ shaft_x - 55 }}" y="{{ catch_y }}" width="110" height="34" rx="6"></rect>
+        <text x="{{ shaft_x }}" y="{{ catch_y + 15 }}">Bin {{ bin_count }}</text>
+        <text class="msub" x="{{ shaft_x }}" y="{{ catch_y + 28 }}">Catch-all</text>
+    </g>
+</svg>

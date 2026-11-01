@@ -1,7 +1,9 @@
 {# Bin criteria form, generated from the active game's filters (games/<id>/game.json).
    Field names come from games.form_field_name so they always match criteria_from_form. #}
 {% set crit = box_criteria.get(i, {}) %}
+<div class="filter-list">
 {% for flt in game.filters %}
+<div class="filter-block">
 {% if flt.kind == 'multi' %}
 <label>{{ flt.label }}:</label>
 {% set selected = crit.get(flt.key, []) %}
@@ -30,4 +32,6 @@
        {% if flt.placeholder %}placeholder="{{ flt.placeholder }}"{% endif %}
        value="{{ crit.get(flt.key, '') }}">
 {% endif %}
+</div>
 {% endfor %}
+</div>

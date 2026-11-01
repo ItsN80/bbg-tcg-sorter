@@ -511,7 +511,8 @@ def _settings_form(**extra):
 def test_tower_sorting_routes_by_level_and_side(web):
     """Tower: every level is centered before the first card; a matched card tips
     its level's flapper, is released, the level above tips the same way to push
-    it through, both re-center; failures go to the last bin."""
+    it through, the card servo closes, then both re-center; failures go to the
+    last bin."""
     module, client, root = web
     _set_design(root, "tower", 2)
     calls = []
@@ -540,7 +541,7 @@ def test_tower_sorting_routes_by_level_and_side(web):
     assert servo_calls[0] == ["flapper_1,flapper_2", "center"]
     first_card = servo_calls[1:6]
     assert first_card == [["flapper_2", "left"], ["card_servo", "open"], ["flapper_1", "left"],
-                          ["flapper_2,flapper_1", "center"], ["card_servo", "close"]]
+                          ["card_servo", "close"], ["flapper_2,flapper_1", "center"]]
     assert servo_calls[6:] == [["card_servo", "open"], ["card_servo", "close"]]  # catch-all: no flapper moves
     assert module.bin_counts[3] == 1 and module.bin_counts[5] == 1 and module.bin_counts[10] == 0
 
@@ -627,9 +628,17 @@ def test_test_deposit_runs_the_sorting_cycle(web):
         ["servo_controller.py", "flapper_3", "right"],
         ["servo_controller.py", "card_servo", "open"],
         ["servo_controller.py", "flapper_2", "right"],
-        ["servo_controller.py", "flapper_3,flapper_2", "center"],
         ["servo_controller.py", "card_servo", "close"],
+        ["servo_controller.py", "flapper_3,flapper_2", "center"],
     ]
+
+    # Ramp bin: the card servo closes before the flapper does.
+    calls.clear()
+    with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+         mock.patch.object(module.time, "sleep"):
+        assert client.post("/api/servo_test/ramp/deposit", json={"bin": 4, "feed": False}).get_json()["success"]
+    assert calls[1:] == [["servo_controller.py", "flapper_4", "open"], ["servo_controller.py", "card_servo", "open"],
+                         ["servo_controller.py", "card_servo", "close"], ["servo_controller.py", "flapper_4", "close"]]
 
     # Ramp page, no feed, catch-all: flappers close, the card servo cycles.
     calls.clear()

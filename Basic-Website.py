@@ -507,20 +507,22 @@ CARD_RELEASE_HOLD_SEC = 2  # how long the card servo stays open for a card to dr
 def deliver_card(design, selected_box):
     """Sends the card waiting at the card servo into selected_box: moves that
     bin's flapper (none for the catch-all), opens the card servo, waits, tips
-    the level above the same way to push a tower card through, then puts
-    everything back (ramp flappers close, tower flappers re-center)."""
+    the level above the same way to push a tower card through, closes the
+    card servo, then puts the flappers back (ramp: close, tower: re-center)."""
     route = sorter_design.route(design, selected_box)
     if route:
         subprocess.run(SERVO_CTRL + [route.flapper, route.action], check=True, timeout=10)
     subprocess.run(SERVO_CTRL + ["card_servo", "open"], check=True, timeout=10)
     time.sleep(CARD_RELEASE_HOLD_SEC)
+    moved = []
     if route:
-        moved = [route.flapper]
+        moved.append(route.flapper)
         if route.push_flapper:
             subprocess.run(SERVO_CTRL + [route.push_flapper, route.action], check=True, timeout=10)
             moved.append(route.push_flapper)
-        subprocess.run(SERVO_CTRL + [",".join(moved), route.return_action], check=True, timeout=10)
     subprocess.run(SERVO_CTRL + ["card_servo", "close"], check=True, timeout=10)
+    if moved:
+        subprocess.run(SERVO_CTRL + [",".join(moved), route.return_action], check=True, timeout=10)
 
 def sorting_loop():
     global move_count, monthly_move_count, sorting_active, sorting_thread, csv_enabled, card_identified_url, failed_read_count, do_credits
